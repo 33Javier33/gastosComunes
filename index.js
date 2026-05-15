@@ -1,13 +1,17 @@
-// ─── 1. STATE & SECURITY ────────────────────────────────────────────────────
+// ─── 1. CONSTANTS & STATE ────────────────────────────────────────────────────
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwEVnRw5npVWcO7EI8u5lS2KbHeq5dYlh_41wHl1ZugSNq7gdpSaOiIRO1ek8Rlb-Tr/exec';
 
-let authData = JSON.parse(localStorage.getItem('authData'));
-let expenses = JSON.parse(localStorage.getItem('sharedExpenses')) || [];
-let selectedLoginUser = '1';
+let authData             = JSON.parse(localStorage.getItem('authData'));
+let expenses             = JSON.parse(localStorage.getItem('sharedExpenses')) || [];
+let selectedLoginUser    = '1';
 let currentPayerSelection = '1';
+let editPayerSelection   = '1';
+let editExpenseId        = null;
+let autoSyncTimer        = null;
+let isSyncing            = false;
 
-// Auto-logout when tab is hidden
+// Auto-logout when tab is hidden (security)
 document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') {
         sessionStorage.removeItem('isLoggedIn');
@@ -51,7 +55,6 @@ function showAlert(elementId, message, isInfo = false) {
 
 async function initApp() {
     if (authData) {
-        // Config already in this browser
         if (sessionStorage.getItem('isLoggedIn')) {
             launchMainApp();
         } else {
@@ -60,7 +63,7 @@ async function initApp() {
         return;
     }
 
-    // No local config — try Google Sheets before showing setup
+    // No local config — try to pull from Google Sheets first
     showBootLoader(true);
     try {
         const remote = await pullFromSheet();
@@ -68,7 +71,7 @@ async function initApp() {
             authData = remote.authData;
             localStorage.setItem('authData', JSON.stringify(authData));
             if (remote.expenses && remote.expenses.length) {
-                expenses = remote.expenses;
+                expenses = remote.expenses.filter(e => !e.deleted);
                 persistExpenses();
             }
             showBootLoader(false);
@@ -78,7 +81,6 @@ async function initApp() {
             showView('setup-view');
         }
     } catch {
-        // Network error or first-ever launch — go to setup
         showBootLoader(false);
         showView('setup-view');
     }
@@ -118,7 +120,6 @@ document.getElementById('setup-form').addEventListener('submit', async function 
     sessionStorage.setItem('isLoggedIn', 'true');
     sessionStorage.setItem('currentUser', '1');
 
-    // Persist config to Google Sheets so other browsers can load it
     try { await pushToSheet(); } catch (err) { console.warn('[SpendSync] Setup sync failed:', err); }
 
     launchMainApp();
@@ -201,55 +202,63 @@ function launchMainApp() {
     document.getElementById('lbl-pending1').textContent = authData.p1Name;
     document.getElementById('lbl-pending2').textContent = authData.p2Name;
 
-    updateLastSyncLabel();
     selectPayer('1');
     renderExpenses();
     updateSummary();
+    updateLastSyncLabel();
+
+    // Silent pull in background to get any changes from the other device
+    silentPull();
 }
 
 function updateLastSyncLabel() {
     const el = document.getElementById('last-sync-label');
+    if (!el) return;
     const ts = localStorage.getItem('lastSync');
     if (ts) {
         const d = new Date(ts);
         el.textContent = `Última sync: ${d.toLocaleDateString('es-CL')} ${d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+        el.textContent = 'Auto-sync activo. Los cambios se envían solos.';
     }
 }
 
-// ─── 9. EXPENSE FORM ─────────────────────────────────────────────────────────
+// ─── 9. ADD EXPENSE FORM ─────────────────────────────────────────────────────
 
 document.getElementById('amount').addEventListener('input', function () {
-    const value = this.value.replace(/\D/g, '');
-    this.value = value !== '' ? new Intl.NumberFormat('es-CL').format(parseInt(value)) : '';
+    const v = this.value.replace(/\D/g, '');
+    this.value = v ? new Intl.NumberFormat('es-CL').format(parseInt(v)) : '';
 });
 
 function selectPayer(val) {
     currentPayerSelection = val;
     ['btn-payer-1', 'btn-payer-2', 'btn-payer-3'].forEach((id, i) => {
         const btn = document.getElementById(id);
-        if (String(i + 1) === val) {
-            btn.className = 'h-10 text-xs font-bold rounded-lg border border-primary text-primary bg-primary-container/10';
-        } else {
-            btn.className = 'h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant bg-transparent';
-        }
+        btn.className = String(i + 1) === val
+            ? 'h-10 text-xs font-bold rounded-lg border border-primary text-primary bg-primary-container/10'
+            : 'h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant bg-transparent';
     });
 }
 
 document.getElementById('expense-form').addEventListener('submit', function (e) {
     e.preventDefault();
-
     const rawAmount = document.getElementById('amount').value.replace(/\D/g, '');
+    const now = new Date().toISOString();
+
     const expense = {
         id: Date.now().toString(),
         type: document.getElementById('expense-is-pending').checked ? 'pending' : 'paid',
         date: document.getElementById('date').value,
         concept: document.getElementById('concept').value.trim(),
         amount: parseFloat(rawAmount),
-        paidBy: currentPayerSelection
+        paidBy: currentPayerSelection,
+        updatedAt: now,
+        deleted: false
     };
 
     expenses.push(expense);
     persistExpenses();
+    scheduleAutoSync();
 
     document.getElementById('concept').value = '';
     document.getElementById('amount').value = '';
@@ -266,26 +275,125 @@ window.markAsPaid = function (id) {
     const idx = expenses.findIndex(e => e.id === id);
     if (idx !== -1) {
         expenses[idx].type = 'paid';
+        expenses[idx].updatedAt = new Date().toISOString();
         persistExpenses();
+        scheduleAutoSync();
         renderExpenses();
         updateSummary();
     }
 };
 
+// Soft-delete: marks as deleted so sync can remove it from the sheet
 window.deleteExpense = function (id) {
     if (confirm('¿Seguro que deseas eliminar este movimiento?')) {
-        expenses = expenses.filter(e => e.id !== id);
-        persistExpenses();
-        renderExpenses();
-        updateSummary();
+        const idx = expenses.findIndex(e => e.id === id);
+        if (idx !== -1) {
+            expenses[idx].deleted = true;
+            expenses[idx].updatedAt = new Date().toISOString();
+            persistExpenses();
+            scheduleAutoSync();
+            renderExpenses();
+            updateSummary();
+        }
     }
+};
+
+window.clearAllExpenses = function () {
+    if (!confirm('¿Borrar TODOS los gastos? Esta acción se sincronizará con Google Sheets.')) return;
+    const now = new Date().toISOString();
+    expenses = expenses.map(e => ({ ...e, deleted: true, updatedAt: now }));
+    persistExpenses();
+    scheduleAutoSync();
+    renderExpenses();
+    updateSummary();
+    toggleDrawer();
+};
+
+window.resetApp = function () {
+    if (!confirm('¿Resetear la aplicación completa? Se borrarán usuarios y todos los gastos locales.')) return;
+    localStorage.clear();
+    sessionStorage.clear();
+    location.reload();
 };
 
 function persistExpenses() {
     localStorage.setItem('sharedExpenses', JSON.stringify(expenses));
 }
 
-// ─── 11. HELPERS ─────────────────────────────────────────────────────────────
+// ─── 11. EDIT MODAL ──────────────────────────────────────────────────────────
+
+document.getElementById('edit-amount').addEventListener('input', function () {
+    const v = this.value.replace(/\D/g, '');
+    this.value = v ? new Intl.NumberFormat('es-CL').format(parseInt(v)) : '';
+});
+
+window.openEditModal = function (id) {
+    const exp = expenses.find(e => e.id === id);
+    if (!exp) return;
+
+    editExpenseId = id;
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-concept').value = exp.concept;
+    document.getElementById('edit-amount').value = new Intl.NumberFormat('es-CL').format(exp.amount);
+    document.getElementById('edit-date').value = exp.date;
+    document.getElementById('edit-is-pending').checked = exp.type === 'pending';
+
+    // Label payer buttons with real names
+    document.getElementById('edit-btn-payer-1').textContent = authData.p1Name;
+    document.getElementById('edit-btn-payer-2').textContent = authData.p2Name;
+
+    selectEditPayer(exp.paidBy);
+
+    document.getElementById('edit-modal').classList.remove('hidden');
+};
+
+window.closeEditModal = function () {
+    document.getElementById('edit-modal').classList.add('hidden');
+    editExpenseId = null;
+};
+
+// Close modal when tapping the dark backdrop
+window.handleModalBackdrop = function (e) {
+    if (e.target === document.getElementById('edit-modal')) closeEditModal();
+};
+
+function selectEditPayer(val) {
+    editPayerSelection = val;
+    ['edit-btn-payer-1', 'edit-btn-payer-2', 'edit-btn-payer-3'].forEach((id, i) => {
+        const btn = document.getElementById(id);
+        btn.className = String(i + 1) === val
+            ? 'h-10 text-xs font-bold rounded-lg border border-primary text-primary bg-primary-container/10'
+            : 'h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant bg-transparent';
+    });
+}
+
+document.getElementById('edit-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!editExpenseId) return;
+
+    const idx = expenses.findIndex(exp => exp.id === editExpenseId);
+    if (idx === -1) return;
+
+    const rawAmount = document.getElementById('edit-amount').value.replace(/\D/g, '');
+
+    expenses[idx] = {
+        ...expenses[idx],
+        concept:   document.getElementById('edit-concept').value.trim(),
+        amount:    parseFloat(rawAmount),
+        date:      document.getElementById('edit-date').value,
+        type:      document.getElementById('edit-is-pending').checked ? 'pending' : 'paid',
+        paidBy:    editPayerSelection,
+        updatedAt: new Date().toISOString()
+    };
+
+    persistExpenses();
+    scheduleAutoSync();
+    renderExpenses();
+    updateSummary();
+    closeEditModal();
+});
+
+// ─── 12. HELPERS ─────────────────────────────────────────────────────────────
 
 const formatCurrency = amount =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(amount);
@@ -299,7 +407,11 @@ function resolvePayerName(val) {
     return '50/50';
 }
 
-// ─── 12. RENDER ──────────────────────────────────────────────────────────────
+function activeExpenses() {
+    return expenses.filter(e => !e.deleted);
+}
+
+// ─── 13. RENDER ──────────────────────────────────────────────────────────────
 
 function renderExpenses() {
     const expenseList = document.getElementById('expense-list');
@@ -308,10 +420,10 @@ function renderExpenses() {
     pendingList.innerHTML = '';
     let hasPaid = false, hasPending = false;
 
-    const sorted = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sorted = activeExpenses().sort((a, b) => new Date(b.date) - new Date(a.date));
 
     sorted.forEach(exp => {
-        const payerName = resolvePayerName(exp.paidBy);
+        const payerName  = resolvePayerName(exp.paidBy);
         const splitBadge = exp.paidBy === '3'
             ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded mt-1 inline-block">Aporte: ${formatCurrency(exp.amount / 2)} c/u</span>`
             : '';
@@ -320,20 +432,23 @@ function renderExpenses() {
             hasPaid = true;
             expenseList.innerHTML += `
             <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
                         <span class="material-symbols-outlined text-primary">paid</span>
                     </div>
-                    <div>
-                        <p class="font-label-md text-label-md">${exp.concept}</p>
+                    <div class="min-w-0">
+                        <p class="font-label-md text-label-md truncate">${exp.concept}</p>
                         <p class="text-[10px] text-on-surface-variant uppercase font-bold">${formatDate(exp.date)} • ${payerName}</p>
                     </div>
                 </div>
-                <div class="text-right flex flex-col items-end justify-center">
-                    <div class="flex items-center gap-3">
+                <div class="text-right flex flex-col items-end justify-center shrink-0 ml-2">
+                    <div class="flex items-center gap-1">
                         <span class="font-bold text-on-surface">${formatCurrency(exp.amount)}</span>
-                        <button onclick="deleteExpense('${exp.id}')" class="text-on-surface-variant/40 hover:text-error transition-colors">
-                            <span class="material-symbols-outlined text-lg">delete</span>
+                        <button onclick="openEditModal('${exp.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-primary transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button onclick="deleteExpense('${exp.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-error transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">delete</span>
                         </button>
                     </div>
                     ${splitBadge}
@@ -361,6 +476,9 @@ function renderExpenses() {
                         <span class="material-symbols-outlined text-sm">check_circle</span>
                         Marcar Pagado
                     </button>
+                    <button onclick="openEditModal('${exp.id}')" class="w-9 h-9 border border-primary text-primary rounded-lg flex items-center justify-center active:scale-95 transition-transform">
+                        <span class="material-symbols-outlined text-sm">edit</span>
+                    </button>
                     <button onclick="deleteExpense('${exp.id}')" class="w-9 h-9 border border-error text-error rounded-lg flex items-center justify-center active:scale-95 transition-transform">
                         <span class="material-symbols-outlined text-sm">delete</span>
                     </button>
@@ -373,14 +491,14 @@ function renderExpenses() {
     document.getElementById('pending-empty-state').classList.toggle('hidden', hasPending);
 }
 
-// ─── 13. SUMMARY ─────────────────────────────────────────────────────────────
+// ─── 14. SUMMARY ─────────────────────────────────────────────────────────────
 
 function updateSummary() {
     let totalPaidP1 = 0, totalPaidP2 = 0;
     let totalPendingP1 = 0, totalPendingP2 = 0;
     let sharedPaidTotal = 0;
 
-    expenses.forEach(exp => {
+    activeExpenses().forEach(exp => {
         const half = exp.amount / 2;
         if ((exp.type || 'paid') === 'paid') {
             if (exp.paidBy === '3') { totalPaidP1 += half; totalPaidP2 += half; sharedPaidTotal += exp.amount; }
@@ -401,7 +519,7 @@ function updateSummary() {
     document.getElementById('pending-p2').textContent = formatCurrency(totalPendingP2);
 }
 
-// ─── 14. DRAWER ──────────────────────────────────────────────────────────────
+// ─── 15. DRAWER ──────────────────────────────────────────────────────────────
 
 window.toggleDrawer = function () {
     const drawer   = document.getElementById('side-drawer');
@@ -427,9 +545,133 @@ window.toggleDrawer = function () {
     }
 };
 
-// ─── 15. GOOGLE APPS SCRIPT SYNC ─────────────────────────────────────────────
+// ─── 16. AUTO-SYNC (debounced) ───────────────────────────────────────────────
+
+function scheduleAutoSync() {
+    clearTimeout(autoSyncTimer);
+    autoSyncTimer = setTimeout(async () => {
+        if (isSyncing) { scheduleAutoSync(); return; } // retry if a sync is in progress
+        try {
+            setSyncUiState(true);
+            await pushToSheet();
+            const ts = new Date().toISOString();
+            localStorage.setItem('lastSync', ts);
+            updateLastSyncLabel();
+        } catch (err) {
+            console.warn('[SpendSync] Auto-sync push failed:', err);
+        } finally {
+            setSyncUiState(false);
+        }
+    }, 3000);
+}
+
+async function silentPull() {
+    try {
+        const remote = await pullFromSheet();
+        if (remote.authData) {
+            authData = remote.authData;
+            localStorage.setItem('authData', JSON.stringify(authData));
+        }
+        mergeExpenses(remote.expenses);
+        persistExpenses();
+        renderExpenses();
+        updateSummary();
+        const ts = new Date().toISOString();
+        localStorage.setItem('lastSync', ts);
+        updateLastSyncLabel();
+    } catch {
+        // Offline — no action needed
+    }
+}
+
+// ─── 17. MANUAL SYNC ─────────────────────────────────────────────────────────
+
+window.manualSync = async function () {
+    if (isSyncing) return;
+    setSyncUiState(true);
+    try {
+        await pushToSheet();
+        const remote = await pullFromSheet();
+
+        if (remote.authData) {
+            authData = remote.authData;
+            localStorage.setItem('authData', JSON.stringify(authData));
+        }
+        mergeExpenses(remote.expenses);
+        persistExpenses();
+        renderExpenses();
+        updateSummary();
+
+        const ts = new Date().toISOString();
+        localStorage.setItem('lastSync', ts);
+        updateLastSyncLabel();
+        showDrawerSyncStatus(`Sincronizado a las ${new Date(ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}.`, false);
+    } catch (err) {
+        showDrawerSyncStatus('Error: ' + err.message, true);
+        console.error('[SpendSync Sync]', err);
+    } finally {
+        setSyncUiState(false);
+    }
+};
+
+// ─── 18. SYNC TRANSPORT ──────────────────────────────────────────────────────
+
+async function pushToSheet() {
+    const payload = {
+        action:   'push',
+        expenses: expenses,   // includes soft-deleted ones so the sheet is updated
+        authData: authData
+    };
+    const res = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(`Push HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Push rechazado');
+}
+
+async function pullFromSheet() {
+    const res = await fetch(`${GAS_URL}?action=pull`, { method: 'GET' });
+    if (!res.ok) throw new Error(`Pull HTTP ${res.status}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Pull rechazado');
+    return {
+        expenses: Array.isArray(json.expenses) ? json.expenses : [],
+        authData: json.authData || null
+    };
+}
+
+/**
+ * Merge remote expenses into local using updatedAt timestamp.
+ * Local soft-deletes always win (once deleted locally it stays deleted).
+ */
+function mergeExpenses(remote) {
+    const map = new Map(expenses.map(e => [e.id, e]));
+
+    remote.forEach(r => {
+        const local = map.get(r.id);
+        if (!local) {
+            // New expense from another device
+            map.set(r.id, r);
+        } else if (local.deleted) {
+            // Locally deleted — keep deleted regardless of remote
+        } else {
+            // Both exist — newest updatedAt wins
+            const localTs  = new Date(local.updatedAt || 0).getTime();
+            const remoteTs = new Date(r.updatedAt || 0).getTime();
+            if (remoteTs > localTs) map.set(r.id, r);
+        }
+    });
+
+    expenses = Array.from(map.values());
+}
+
+// ─── 19. SYNC UI ─────────────────────────────────────────────────────────────
 
 function setSyncUiState(loading) {
+    isSyncing = loading;
     const btn   = document.getElementById('sync-btn');
     const icon  = btn.querySelector('.sync-icon');
     const txtEl = document.getElementById('sync-status-text');
@@ -444,8 +686,8 @@ function setSyncUiState(loading) {
         btn.classList.remove('syncing', 'opacity-70');
         icon.textContent = 'cloud_done';
         txtEl.textContent = 'Sync';
-        setTimeout(() => { icon.textContent = 'cloud_sync'; }, 2000);
         bar.classList.add('hidden');
+        setTimeout(() => { icon.textContent = 'cloud_sync'; }, 2000);
     }
 }
 
@@ -457,71 +699,7 @@ function showDrawerSyncStatus(msg, isError) {
     setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
-window.manualSync = async function () {
-    setSyncUiState(true);
-    try {
-        await pushToSheet();
-        const remote = await pullFromSheet();
-
-        // Refresh authData if the sheet has an updated version
-        if (remote.authData) {
-            authData = remote.authData;
-            localStorage.setItem('authData', JSON.stringify(authData));
-        }
-
-        mergeExpenses(remote.expenses);
-        persistExpenses();
-        renderExpenses();
-        updateSummary();
-        setSyncUiState(false);
-
-        const ts = new Date().toISOString();
-        localStorage.setItem('lastSync', ts);
-        updateLastSyncLabel();
-        showDrawerSyncStatus(`Sincronizado a las ${new Date(ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}.`, false);
-    } catch (err) {
-        setSyncUiState(false);
-        showDrawerSyncStatus('Error: ' + err.message, true);
-        console.error('[SpendSync Sync]', err);
-    }
-};
-
-async function pushToSheet() {
-    const payload = {
-        action: 'push',
-        expenses: expenses,
-        authData: authData   // full user config so other devices can load it
-    };
-    const res = await fetch(GAS_URL, {
-        method: 'POST',
-        // text/plain avoids CORS preflight on GAS no-cors deployments
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error(`Push HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Push rechazado por el servidor');
-}
-
-async function pullFromSheet() {
-    const res = await fetch(`${GAS_URL}?action=pull`, { method: 'GET' });
-    if (!res.ok) throw new Error(`Pull HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Pull rechazado por el servidor');
-    return {
-        expenses: Array.isArray(json.expenses) ? json.expenses : [],
-        authData: json.authData || null
-    };
-}
-
-/** Merge remote expenses into local by id — remote wins on conflict */
-function mergeExpenses(remote) {
-    const map = new Map(expenses.map(e => [e.id, e]));
-    remote.forEach(r => map.set(r.id, r));
-    expenses = Array.from(map.values());
-}
-
-// ─── 16. SERVICE WORKER REGISTRATION ─────────────────────────────────────────
+// ─── 20. SERVICE WORKER ──────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -529,7 +707,6 @@ if ('serviceWorker' in navigator) {
             console.warn('[SpendSync SW] Registration failed:', err);
         });
     });
-    // Respond to SW-triggered sync requests
     navigator.serviceWorker.addEventListener('message', e => {
         if (e.data && e.data.type === 'SW_TRIGGER_SYNC') manualSync();
     });
