@@ -1,0 +1,35 @@
+/* Material Symbols config */
+.material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Hide scrollbars visually but keep functionality */
+.hide-scroll::-webkit-scrollbar { display: none; }
+.hide-scroll {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Minimum viewport height for layout */
+body {
+    min-height: max(884px, 100dvh);
+}
+
+/* Spinning animation for sync icon */
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+.spinning {
+    animation: spin 1s linear infinite;
+}
+
+/* Sync button icon animation when active */
+.syncing .sync-icon {
+    animation: spin 1s linear infinite;
+}
+
+/* Safe area padding for bottom nav on iOS */
+.pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
