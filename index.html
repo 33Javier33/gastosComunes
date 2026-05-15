@@ -111,6 +111,12 @@
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen">
 
+    <!-- Boot Loader (shown while fetching config from Google Sheets) -->
+    <div id="boot-loader" class="hidden fixed inset-0 z-[200] bg-surface flex flex-col items-center justify-center gap-4">
+        <span class="material-symbols-outlined text-[56px] text-primary spinning">cloud_sync</span>
+        <p class="font-label-md text-label-md text-on-surface-variant">Cargando configuración...</p>
+    </div>
+
     <!-- SETUP VIEW -->
     <section class="hidden min-h-screen p-container-margin flex flex-col justify-center items-center bg-surface" id="setup-view">
         <div class="w-full max-w-md space-y-stack-lg">
@@ -359,23 +365,17 @@
             </div>
 
             <div class="flex-1 space-y-2 mt-4">
-                <!-- Sync Configuration -->
+                <!-- Sync Panel -->
                 <div class="p-4 bg-surface-container rounded-xl border border-outline-variant space-y-3">
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined text-primary text-xl">cloud_sync</span>
                         <span class="font-label-md text-label-md font-semibold">Sincronización Google</span>
                     </div>
-                    <p class="text-xs text-on-surface-variant">Pega la URL de tu Web App de Google Apps Script para sincronizar datos entre dispositivos.</p>
-                    <input id="gas-url-input" type="url" placeholder="https://script.google.com/macros/s/..." class="w-full h-10 px-3 text-xs rounded-lg border border-outline-variant focus:border-primary outline-none"/>
-                    <div class="flex gap-2">
-                        <button onclick="saveGasUrl()" class="flex-1 h-9 bg-primary text-on-primary text-xs font-bold rounded-lg active:scale-95 transition-transform">
-                            Guardar URL
-                        </button>
-                        <button onclick="manualSync()" class="flex-1 h-9 border border-primary text-primary text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-1">
-                            <span class="material-symbols-outlined text-sm">sync</span>
-                            Sincronizar
-                        </button>
-                    </div>
+                    <p id="last-sync-label" class="text-xs text-on-surface-variant">Sincroniza gastos y usuarios entre dispositivos.</p>
+                    <button onclick="manualSync()" class="w-full h-9 bg-primary text-on-primary text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">sync</span>
+                        Sincronizar ahora
+                    </button>
                     <p id="drawer-sync-status" class="text-xs text-on-surface-variant text-center hidden"></p>
                 </div>
 

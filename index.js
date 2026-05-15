@@ -1,5 +1,7 @@
 // ─── 1. STATE & SECURITY ────────────────────────────────────────────────────
 
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwEVnRw5npVWcO7EI8u5lS2KbHeq5dYlh_41wHl1ZugSNq7gdpSaOiIRO1ek8Rlb-Tr/exec';
+
 let authData = JSON.parse(localStorage.getItem('authData'));
 let expenses = JSON.parse(localStorage.getItem('sharedExpenses')) || [];
 let selectedLoginUser = '1';
@@ -47,24 +49,57 @@ function showAlert(elementId, message, isInfo = false) {
 
 // ─── 3. BOOT ─────────────────────────────────────────────────────────────────
 
-function initApp() {
-    if (!authData) {
-        showView('setup-view');
-    } else if (!sessionStorage.getItem('isLoggedIn')) {
-        document.getElementById('lbl-login-u1').textContent = authData.p1Name;
-        document.getElementById('btn-login-u1').querySelector('span.material-symbols-outlined').textContent = authData.p1Name.charAt(0).toUpperCase();
-        document.getElementById('lbl-login-u2').textContent = authData.p2Name;
-        document.getElementById('btn-login-u2').querySelector('span.material-symbols-outlined').textContent = authData.p2Name.charAt(0).toUpperCase();
-        selectLoginUser('1');
-        showView('login-view');
-    } else {
-        launchMainApp();
+async function initApp() {
+    if (authData) {
+        // Config already in this browser
+        if (sessionStorage.getItem('isLoggedIn')) {
+            launchMainApp();
+        } else {
+            showLoginView();
+        }
+        return;
     }
+
+    // No local config — try Google Sheets before showing setup
+    showBootLoader(true);
+    try {
+        const remote = await pullFromSheet();
+        if (remote.authData) {
+            authData = remote.authData;
+            localStorage.setItem('authData', JSON.stringify(authData));
+            if (remote.expenses && remote.expenses.length) {
+                expenses = remote.expenses;
+                persistExpenses();
+            }
+            showBootLoader(false);
+            showLoginView();
+        } else {
+            showBootLoader(false);
+            showView('setup-view');
+        }
+    } catch {
+        // Network error or first-ever launch — go to setup
+        showBootLoader(false);
+        showView('setup-view');
+    }
+}
+
+function showBootLoader(show) {
+    document.getElementById('boot-loader').classList.toggle('hidden', !show);
+}
+
+function showLoginView() {
+    document.getElementById('lbl-login-u1').textContent = authData.p1Name;
+    document.getElementById('btn-login-u1').querySelector('span.material-symbols-outlined').textContent = authData.p1Name.charAt(0).toUpperCase();
+    document.getElementById('lbl-login-u2').textContent = authData.p2Name;
+    document.getElementById('btn-login-u2').querySelector('span.material-symbols-outlined').textContent = authData.p2Name.charAt(0).toUpperCase();
+    selectLoginUser('1');
+    showView('login-view');
 }
 
 // ─── 4. SETUP ────────────────────────────────────────────────────────────────
 
-document.getElementById('setup-form').addEventListener('submit', function (e) {
+document.getElementById('setup-form').addEventListener('submit', async function (e) {
     e.preventDefault();
     const p1Name = document.getElementById('setup-name1').value.trim();
     const p1Pin  = document.getElementById('setup-pin1').value;
@@ -82,6 +117,10 @@ document.getElementById('setup-form').addEventListener('submit', function (e) {
     localStorage.setItem('authData', JSON.stringify(authData));
     sessionStorage.setItem('isLoggedIn', 'true');
     sessionStorage.setItem('currentUser', '1');
+
+    // Persist config to Google Sheets so other browsers can load it
+    try { await pushToSheet(); } catch (err) { console.warn('[SpendSync] Setup sync failed:', err); }
+
     launchMainApp();
 });
 
@@ -162,12 +201,19 @@ function launchMainApp() {
     document.getElementById('lbl-pending1').textContent = authData.p1Name;
     document.getElementById('lbl-pending2').textContent = authData.p2Name;
 
-    const savedUrl = localStorage.getItem('gasScriptUrl') || '';
-    document.getElementById('gas-url-input').value = savedUrl;
-
+    updateLastSyncLabel();
     selectPayer('1');
     renderExpenses();
     updateSummary();
+}
+
+function updateLastSyncLabel() {
+    const el = document.getElementById('last-sync-label');
+    const ts = localStorage.getItem('lastSync');
+    if (ts) {
+        const d = new Date(ts);
+        el.textContent = `Última sync: ${d.toLocaleDateString('es-CL')} ${d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`;
+    }
 }
 
 // ─── 9. EXPENSE FORM ─────────────────────────────────────────────────────────
@@ -383,25 +429,11 @@ window.toggleDrawer = function () {
 
 // ─── 15. GOOGLE APPS SCRIPT SYNC ─────────────────────────────────────────────
 
-window.saveGasUrl = function () {
-    const url = document.getElementById('gas-url-input').value.trim();
-    if (!url.startsWith('https://script.google.com/')) {
-        showDrawerSyncStatus('URL inválida. Debe ser de script.google.com.', true);
-        return;
-    }
-    localStorage.setItem('gasScriptUrl', url);
-    showDrawerSyncStatus('URL guardada correctamente.', false);
-};
-
-function getGasUrl() {
-    return localStorage.getItem('gasScriptUrl') || '';
-}
-
 function setSyncUiState(loading) {
-    const btn     = document.getElementById('sync-btn');
-    const icon    = btn.querySelector('.sync-icon');
-    const txtEl   = document.getElementById('sync-status-text');
-    const bar     = document.getElementById('sync-status-bar');
+    const btn   = document.getElementById('sync-btn');
+    const icon  = btn.querySelector('.sync-icon');
+    const txtEl = document.getElementById('sync-status-text');
+    const bar   = document.getElementById('sync-status-bar');
 
     if (loading) {
         btn.classList.add('syncing', 'opacity-70');
@@ -425,49 +457,44 @@ function showDrawerSyncStatus(msg, isError) {
     setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
-/**
- * Push local data to Google Sheet, then pull remote data and merge.
- * The GAS endpoint receives POST with action=push and GET with action=pull.
- */
 window.manualSync = async function () {
-    const url = getGasUrl();
-    if (!url) {
-        toggleDrawer();
-        showDrawerSyncStatus('Configura la URL del script primero.', true);
-        return;
-    }
-
     setSyncUiState(true);
     try {
-        // 1. Push local expenses
-        await pushToSheet(url);
+        await pushToSheet();
+        const remote = await pullFromSheet();
 
-        // 2. Pull remote expenses and merge
-        const remote = await pullFromSheet(url);
-        mergeExpenses(remote);
+        // Refresh authData if the sheet has an updated version
+        if (remote.authData) {
+            authData = remote.authData;
+            localStorage.setItem('authData', JSON.stringify(authData));
+        }
 
+        mergeExpenses(remote.expenses);
         persistExpenses();
         renderExpenses();
         updateSummary();
         setSyncUiState(false);
-        showDrawerSyncStatus(`Sincronizado correctamente a las ${new Date().toLocaleTimeString('es-CL')}.`, false);
-        localStorage.setItem('lastSync', new Date().toISOString());
+
+        const ts = new Date().toISOString();
+        localStorage.setItem('lastSync', ts);
+        updateLastSyncLabel();
+        showDrawerSyncStatus(`Sincronizado a las ${new Date(ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}.`, false);
     } catch (err) {
         setSyncUiState(false);
-        showDrawerSyncStatus('Error de sincronización: ' + err.message, true);
+        showDrawerSyncStatus('Error: ' + err.message, true);
         console.error('[SpendSync Sync]', err);
     }
 };
 
-async function pushToSheet(baseUrl) {
+async function pushToSheet() {
     const payload = {
         action: 'push',
         expenses: expenses,
-        meta: { p1Name: authData.p1Name, p2Name: authData.p2Name }
+        authData: authData   // full user config so other devices can load it
     };
-    const res = await fetch(baseUrl, {
+    const res = await fetch(GAS_URL, {
         method: 'POST',
-        // GAS requires text/plain to avoid CORS preflight on no-cors deployments
+        // text/plain avoids CORS preflight on GAS no-cors deployments
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
     });
@@ -476,19 +503,22 @@ async function pushToSheet(baseUrl) {
     if (!json.ok) throw new Error(json.error || 'Push rechazado por el servidor');
 }
 
-async function pullFromSheet(baseUrl) {
-    const res = await fetch(`${baseUrl}?action=pull`, { method: 'GET' });
+async function pullFromSheet() {
+    const res = await fetch(`${GAS_URL}?action=pull`, { method: 'GET' });
     if (!res.ok) throw new Error(`Pull HTTP ${res.status}`);
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Pull rechazado por el servidor');
-    return Array.isArray(json.expenses) ? json.expenses : [];
+    return {
+        expenses: Array.isArray(json.expenses) ? json.expenses : [],
+        authData: json.authData || null
+    };
 }
 
 /** Merge remote expenses into local by id — remote wins on conflict */
 function mergeExpenses(remote) {
-    const localMap = new Map(expenses.map(e => [e.id, e]));
-    remote.forEach(r => localMap.set(r.id, r));
-    expenses = Array.from(localMap.values());
+    const map = new Map(expenses.map(e => [e.id, e]));
+    remote.forEach(r => map.set(r.id, r));
+    expenses = Array.from(map.values());
 }
 
 // ─── 16. SERVICE WORKER REGISTRATION ─────────────────────────────────────────
@@ -498,6 +528,10 @@ if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').catch(err => {
             console.warn('[SpendSync SW] Registration failed:', err);
         });
+    });
+    // Respond to SW-triggered sync requests
+    navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data && e.data.type === 'SW_TRIGGER_SYNC') manualSync();
     });
 }
 
