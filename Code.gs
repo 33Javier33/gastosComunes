@@ -3,10 +3,11 @@
  *
  * SHEET STRUCTURE (auto-created):
  *   "Usuarios"       → nombre, RUT, PIN de cada usuario (legible para humanos)
- *   "meta"           → authData como JSON (lectura rápida)
+ *   "meta"           → authData y archivedMonths como JSON (lectura rápida)
  *   "[p1Name]"       → gastos de usuario 1
  *   "[p2Name]"       → gastos de usuario 2
  *   "Compartido"     → gastos 50/50
+ *   "Gastos [Mes] [Año]" → archivo mensual
  *
  * IMPORTANTE: Republicar el Web App en cada cambio de código:
  *   Deploy → Manage deployments → editar → nueva versión → Deploy
@@ -25,9 +26,10 @@ function doGet(e) {
     try {
         const action = (e && e.parameter && e.parameter.action) || 'pull';
         if (action === 'pull') {
-            const auth     = readAuthData();
-            const expenses = readAllExpenses(auth);
-            return jsonOk({ expenses, authData: auth });
+            const auth          = readAuthData();
+            const expenses      = readAllExpenses(auth);
+            const archivedMonths = readArchivedMonths();
+            return jsonOk({ expenses, authData: auth, archivedMonths });
         }
         return jsonErr('Unknown action');
     } catch (err) {
@@ -44,8 +46,42 @@ function doPost(e) {
             if (body.authData) saveAuthData(body.authData);
             const auth = body.authData || readAuthData();
             writeAllExpenses(body.expenses || [], auth);
+            if (Array.isArray(body.archivedMonths) && body.archivedMonths.length > 0) {
+                mergeAndSaveArchivedMonths(body.archivedMonths);
+            }
             return jsonOk({ written: (body.expenses || []).length });
         }
+
+        if (action === 'archive') {
+            const archive = body.archive;
+            if (!archive || !archive.id) return jsonErr('No archive data');
+            const existing = readArchivedMonths();
+            const idx = existing.findIndex(a => a.id === archive.id);
+            if (idx >= 0) existing[idx] = archive; else existing.unshift(archive);
+            saveArchivedMonths(existing);
+            writeArchiveSheet(archive);
+            return jsonOk({ archived: archive.id });
+        }
+
+        if (action === 'resetAuth') {
+            // Clear authData from meta sheet
+            const metaSheet = getOrCreateSheet(SHEET_META, ['key', 'value']);
+            const metaRows  = metaSheet.getDataRange().getValues();
+            metaRows.slice(1).forEach((r, i) => {
+                if (String(r[0]) === 'authData') {
+                    metaSheet.getRange(i + 2, 2).setValue('');
+                }
+            });
+            // Clear Usuarios sheet
+            const ss = SpreadsheetApp.getActiveSpreadsheet();
+            const usuSheet = ss.getSheetByName(SHEET_USUARIOS);
+            if (usuSheet && usuSheet.getLastRow() > 1) {
+                usuSheet.getRange(2, 1, usuSheet.getLastRow() - 1, USR_HEADERS.length).clearContent();
+            }
+            SpreadsheetApp.flush();
+            return jsonOk({ reset: true });
+        }
+
         return jsonErr('Unknown action');
     } catch (err) {
         return jsonErr(err.message);
@@ -61,16 +97,7 @@ function doPost(e) {
  */
 function saveAuthData(obj) {
     // 1. meta sheet (JSON)
-    const metaSheet = getOrCreateSheet(SHEET_META, ['key', 'value']);
-    const metaRows  = metaSheet.getDataRange().getValues();
-    const keyToRow  = {};
-    metaRows.slice(1).forEach((r, i) => { keyToRow[String(r[0])] = i + 2; });
-    const json = JSON.stringify(obj);
-    if (keyToRow['authData']) {
-        metaSheet.getRange(keyToRow['authData'], 2).setValue(json);
-    } else {
-        metaSheet.appendRow(['authData', json]);
-    }
+    setMetaValue('authData', JSON.stringify(obj));
 
     // 2. Usuarios sheet (human-readable — one row per user)
     const usuSheet = getOrCreateSheet(SHEET_USUARIOS, USR_HEADERS);
@@ -78,7 +105,6 @@ function saveAuthData(obj) {
     if (lastRow > 1) {
         usuSheet.getRange(2, 1, lastRow - 1, USR_HEADERS.length).clearContent();
     }
-    // Número | Nombre | RUT | PIN
     usuSheet.appendRow(['1', obj.p1Name, obj.p1Rut, obj.p1Pin]);
     usuSheet.appendRow(['2', obj.p2Name, obj.p2Rut, obj.p2Pin]);
 
@@ -89,7 +115,6 @@ function saveAuthData(obj) {
  * Reads auth. Tries meta sheet first (fast), falls back to Usuarios sheet.
  */
 function readAuthData() {
-    // --- Fast path: meta JSON ---
     const ss        = SpreadsheetApp.getActiveSpreadsheet();
     const metaSheet = ss.getSheetByName(SHEET_META);
     if (metaSheet) {
@@ -101,14 +126,12 @@ function readAuthData() {
         }
     }
 
-    // --- Fallback: rebuild from Usuarios sheet ---
+    // Fallback: rebuild from Usuarios sheet
     const usuSheet = ss.getSheetByName(SHEET_USUARIOS);
     if (usuSheet) {
         const rows = usuSheet.getDataRange().getValues();
-        // rows[0] = headers; find the two user rows
-        const users = rows.slice(1).filter(r => r[0]); // skip empty rows
+        const users = rows.slice(1).filter(r => r[0]);
         if (users.length >= 2) {
-            // columns: Número | Nombre | RUT | PIN
             const u1 = users.find(r => String(r[0]) === '1') || users[0];
             const u2 = users.find(r => String(r[0]) === '2') || users[1];
             return {
@@ -119,6 +142,56 @@ function readAuthData() {
     }
 
     return null;
+}
+
+// ─── ARCHIVED MONTHS DATA ─────────────────────────────────────────────────────
+
+function readArchivedMonths() {
+    const ss        = SpreadsheetApp.getActiveSpreadsheet();
+    const metaSheet = ss.getSheetByName(SHEET_META);
+    if (metaSheet) {
+        const rows = metaSheet.getDataRange().getValues();
+        for (let i = 1; i < rows.length; i++) {
+            if (String(rows[i][0]) === 'archivedMonths' && rows[i][1]) {
+                try { return JSON.parse(rows[i][1]); } catch (_) { break; }
+            }
+        }
+    }
+    return [];
+}
+
+function saveArchivedMonths(arr) {
+    setMetaValue('archivedMonths', JSON.stringify(arr));
+    SpreadsheetApp.flush();
+}
+
+function mergeAndSaveArchivedMonths(incoming) {
+    const existing = readArchivedMonths();
+    const map = new Map(existing.map(a => [a.id, a]));
+    incoming.forEach(r => {
+        if (!map.has(r.id)) map.set(r.id, r);
+        // Keep the one with more expenses if duplicate (remote might have more detail)
+        else {
+            const cur = map.get(r.id);
+            if ((r.expenses || []).length > (cur.expenses || []).length) map.set(r.id, r);
+        }
+    });
+    const merged = Array.from(map.values()).sort((a, b) => String(b.id).localeCompare(String(a.id)));
+    saveArchivedMonths(merged);
+}
+
+// ─── META HELPER ─────────────────────────────────────────────────────────────
+
+function setMetaValue(key, value) {
+    const metaSheet = getOrCreateSheet(SHEET_META, ['key', 'value']);
+    const metaRows  = metaSheet.getDataRange().getValues();
+    const keyToRow  = {};
+    metaRows.slice(1).forEach((r, i) => { keyToRow[String(r[0])] = i + 2; });
+    if (keyToRow[key]) {
+        metaSheet.getRange(keyToRow[key], 2).setValue(value);
+    } else {
+        metaSheet.appendRow([key, value]);
+    }
 }
 
 // ─── READ EXPENSES ────────────────────────────────────────────────────────────
@@ -136,7 +209,7 @@ function readAllExpenses(auth) {
 
         const headers = rows[0].map(String);
         rows.slice(1).forEach(row => {
-            if (!row[0] && row[0] !== 0) return; // skip empty rows
+            if (!row[0] && row[0] !== 0) return;
             all.push(parseExpenseRow(headers, row));
         });
     });
@@ -153,15 +226,13 @@ function parseExpenseRow(headers, row) {
     const obj = {};
     headers.forEach((h, i) => {
         let val = row[i];
-        // Sheets turns "YYYY-MM-DD" strings into Date objects
         if (val instanceof Date) {
             val = Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
         }
         obj[h] = val;
     });
 
-    // Normalise types that Sheets may have changed
-    obj.id      = String(obj.id ?? '');           // numeric id → string
+    obj.id      = String(obj.id ?? '');
     obj.amount  = Number(obj.amount) || 0;
     obj.paidBy  = String(obj.paidBy ?? '1');
     obj.deleted = obj.deleted === true || String(obj.deleted).toUpperCase() === 'TRUE';
@@ -179,7 +250,7 @@ function writeAllExpenses(incoming, auth) {
     incoming.forEach(exp => {
         const key = String(exp.paidBy);
         if (groups[key]) groups[key].push(exp);
-        else groups['1'].push(exp); // fallback
+        else groups['1'].push(exp);
     });
 
     writeUserSheet(groups['1'], p1Name);
@@ -199,20 +270,57 @@ function writeUserSheet(exps, sheetName) {
     const now  = new Date().toISOString();
     const rows = exps.map(exp =>
         EXP_HEADERS.map(h => {
-            if (h === 'id')        return String(exp.id ?? '');   // keep as string
+            if (h === 'id')        return String(exp.id ?? '');
             if (h === 'updatedAt') return exp.updatedAt || now;
             if (h === 'amount')    return Number(exp[h]) || 0;
             if (h === 'deleted')   return exp.deleted === true ? 'TRUE' : 'FALSE';
-            if (h === 'date')      return String(exp.date || '').substring(0, 10); // YYYY-MM-DD only
+            if (h === 'date')      return String(exp.date || '').substring(0, 10);
             return exp[h] !== undefined ? String(exp[h]) : '';
         })
     );
 
     sheet.getRange(2, 1, rows.length, EXP_HEADERS.length).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 1).setNumberFormat('@STRING@'); // col A = id
+    sheet.getRange(2, 3, rows.length, 1).setNumberFormat('@STRING@'); // col C = date
 
-    // Force id and date columns to plain text so Sheets doesn't reinterpret them
-    sheet.getRange(2, 1, rows.length, 1).setNumberFormat('@STRING@');           // col A = id
-    sheet.getRange(2, 3, rows.length, 1).setNumberFormat('@STRING@');           // col C = date
+    SpreadsheetApp.flush();
+}
+
+// ─── WRITE ARCHIVE SHEET ──────────────────────────────────────────────────────
+
+function writeArchiveSheet(archive) {
+    const headers = ['id', 'date', 'concept', 'amount', 'paidBy', 'type'];
+    const sheet   = getOrCreateSheet(archive.name, headers);
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+        sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+    }
+
+    const exps = (archive.expenses || []).filter(e => !e.deleted);
+    if (exps.length === 0) { SpreadsheetApp.flush(); return; }
+
+    const rows = exps
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        .map(exp => [
+            String(exp.id || ''),
+            String(exp.date || '').substring(0, 10),
+            String(exp.concept || ''),
+            Number(exp.amount) || 0,
+            String(exp.paidBy || '1'),
+            String(exp.type || 'paid')
+        ]);
+
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    sheet.getRange(2, 1, rows.length, 1).setNumberFormat('@STRING@'); // id
+    sheet.getRange(2, 2, rows.length, 1).setNumberFormat('@STRING@'); // date
+
+    // Add summary row at bottom
+    const summary = archive.summary || {};
+    const summaryRow = sheet.getLastRow() + 2;
+    sheet.getRange(summaryRow, 1).setValue('RESUMEN');
+    sheet.getRange(summaryRow, 2).setValue('Total');
+    sheet.getRange(summaryRow, 3).setValue(Number(summary.total) || 0);
+    sheet.getRange(summaryRow, 1, 1, 3).setFontWeight('bold').setBackground('#f0f0ff');
 
     SpreadsheetApp.flush();
 }
@@ -273,4 +381,5 @@ function testRoundTrip() {
     Logger.log('AuthData: '      + JSON.stringify(readAuthData()));
     Logger.log('Total expenses: ' + result.length);
     result.forEach(r => Logger.log(r.id + ' | ' + r.date + ' | ' + r.concept));
+    Logger.log('Archived months: ' + JSON.stringify(readArchivedMonths()));
 }

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="112" fill="#3525cd"/>
+  <!-- Peso/Dollar sign body -->
+  <text x="256" y="335"
+    font-size="310"
+    font-weight="900"
+    font-family="Georgia,'Times New Roman',serif"
+    fill="white"
+    text-anchor="middle"
+    dominant-baseline="auto">$</text>
+  <!-- Double horizontal bars (Chilean peso ₱ style) -->
+  <rect x="195" y="102" width="122" height="22" rx="11" fill="white"/>
+  <rect x="195" y="142" width="122" height="22" rx="11" fill="white"/>
+</svg>
