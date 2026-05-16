@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes"/>
     <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
     <meta name="apple-mobile-web-app-title" content="SpendSync"/>
-    <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+    <link rel="apple-touch-icon" href="icon.svg"/>
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
@@ -110,6 +110,12 @@
     </script>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen">
+
+    <!-- Boot Loader (shown while fetching config from Google Sheets) -->
+    <div id="boot-loader" class="hidden fixed inset-0 z-[200] bg-surface flex flex-col items-center justify-center gap-4">
+        <span class="material-symbols-outlined text-[56px] text-primary spinning">cloud_sync</span>
+        <p class="font-label-md text-label-md text-on-surface-variant">Cargando configuración...</p>
+    </div>
 
     <!-- SETUP VIEW -->
     <section class="hidden min-h-screen p-container-margin flex flex-col justify-center items-center bg-surface" id="setup-view">
@@ -328,6 +334,18 @@
                     No hay gastos registrados en el historial.
                 </div>
             </section>
+
+            <!-- Archive Section -->
+            <section class="space-y-4 pb-4" id="archive-section">
+                <h3 class="font-headline-md text-headline-md flex items-center gap-2">
+                    <span class="material-symbols-outlined text-on-surface-variant">archive</span>
+                    Meses Archivados
+                </h3>
+                <div id="archive-list" class="space-y-3"></div>
+                <div id="archive-empty-state" class="text-center py-6 text-on-surface-variant font-label-md border-2 border-dashed border-outline-variant rounded-xl">
+                    Aún no hay meses archivados.
+                </div>
+            </section>
         </main>
 
         <nav class="fixed bottom-0 w-full z-50 bg-surface rounded-t-xl shadow-[0px_-4px_12px_rgba(0,0,0,0.05)] border-t border-outline-variant flex justify-around items-center h-[72px] px-4 pb-safe">
@@ -358,38 +376,101 @@
                 </div>
             </div>
 
-            <div class="flex-1 space-y-2 mt-4">
-                <!-- Sync Configuration -->
+            <div class="flex-1 space-y-3 mt-4 overflow-y-auto">
+                <!-- Sync Panel -->
                 <div class="p-4 bg-surface-container rounded-xl border border-outline-variant space-y-3">
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined text-primary text-xl">cloud_sync</span>
                         <span class="font-label-md text-label-md font-semibold">Sincronización Google</span>
                     </div>
-                    <p class="text-xs text-on-surface-variant">Pega la URL de tu Web App de Google Apps Script para sincronizar datos entre dispositivos.</p>
-                    <input id="gas-url-input" type="url" placeholder="https://script.google.com/macros/s/..." class="w-full h-10 px-3 text-xs rounded-lg border border-outline-variant focus:border-primary outline-none"/>
-                    <div class="flex gap-2">
-                        <button onclick="saveGasUrl()" class="flex-1 h-9 bg-primary text-on-primary text-xs font-bold rounded-lg active:scale-95 transition-transform">
-                            Guardar URL
-                        </button>
-                        <button onclick="manualSync()" class="flex-1 h-9 border border-primary text-primary text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-1">
-                            <span class="material-symbols-outlined text-sm">sync</span>
-                            Sincronizar
-                        </button>
-                    </div>
-                    <p id="drawer-sync-status" class="text-xs text-on-surface-variant text-center hidden"></p>
+                    <p id="last-sync-label" class="text-xs text-on-surface-variant">Auto-sync activo. Los cambios se envían solos.</p>
+                    <button onclick="manualSync()" class="w-full h-9 bg-primary text-on-primary text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">sync</span>
+                        Sincronizar ahora
+                    </button>
+                    <p id="drawer-sync-status" class="text-xs text-center hidden"></p>
                 </div>
 
                 <div id="sync-status-bar" class="hidden w-full flex items-center gap-2 p-3 bg-primary-container/30 text-primary rounded-lg text-xs font-semibold">
                     <span class="material-symbols-outlined text-sm spinning">sync</span>
                     <span id="sync-status-msg">Sincronizando...</span>
                 </div>
+
+                <!-- Data Management -->
+                <div class="p-4 bg-surface-container rounded-xl border border-outline-variant space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-on-surface-variant text-xl">database</span>
+                        <span class="font-label-md text-label-md font-semibold">Gestión de Datos</span>
+                    </div>
+                    <p class="text-xs text-on-surface-variant">Los cambios se sincronizan automáticamente con Google Sheets.</p>
+                    <button onclick="archiveCurrentMonth()" class="w-full h-9 bg-primary text-on-primary text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">archive</span>
+                        Archivar mes actual
+                    </button>
+                    <button onclick="clearAllExpenses()" class="w-full h-9 border border-error text-error text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">delete_sweep</span>
+                        Borrar todos los gastos
+                    </button>
+                    <button onclick="resetApp()" class="w-full h-9 bg-error text-on-error text-xs font-bold rounded-lg active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">restart_alt</span>
+                        Resetear aplicación completa
+                    </button>
+                </div>
             </div>
 
-            <button onclick="logout()" class="w-full flex items-center gap-4 p-4 text-error mt-auto hover:bg-error/10 rounded-lg transition-colors pointer-events-auto">
+            <button onclick="logout()" class="w-full flex items-center gap-4 p-4 text-error mt-auto hover:bg-error/10 rounded-lg transition-colors pointer-events-auto shrink-0">
                 <span class="material-symbols-outlined">logout</span>
                 <span class="font-body-md text-body-md">Cerrar Sesión Segura</span>
             </button>
         </aside>
+    </div>
+
+    <!-- Edit Expense Modal (bottom sheet) -->
+    <div id="edit-modal" class="hidden fixed inset-0 z-[150] flex items-end justify-center bg-black/40 backdrop-blur-sm" onclick="handleModalBackdrop(event)">
+        <div class="w-full max-w-lg bg-surface rounded-t-2xl shadow-xl">
+            <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-outline-variant">
+                <h3 class="font-headline-md text-headline-md">Editar Movimiento</h3>
+                <button onclick="closeEditModal()" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <form id="edit-form" class="p-5 space-y-4 pb-8">
+                <input type="hidden" id="edit-id"/>
+                <div>
+                    <label class="block font-label-sm text-label-sm text-on-surface-variant mb-1">Concepto</label>
+                    <input id="edit-concept" required class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary outline-none" type="text" placeholder="Ej: Supermercado"/>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-label-sm text-label-sm text-on-surface-variant mb-1">Monto ($)</label>
+                        <input id="edit-amount" required inputmode="numeric" class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary outline-none" type="text"/>
+                    </div>
+                    <div>
+                        <label class="block font-label-sm text-label-sm text-on-surface-variant mb-1">Fecha</label>
+                        <input id="edit-date" required class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary outline-none text-sm" type="date"/>
+                    </div>
+                </div>
+                <div>
+                    <label class="block font-label-sm text-label-sm text-on-surface-variant mb-2">¿Quién pagó/está a cargo?</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button type="button" id="edit-btn-payer-1" onclick="selectEditPayer('1')" class="h-10 text-xs font-bold rounded-lg border border-primary text-primary bg-primary-container/10">U1</button>
+                        <button type="button" id="edit-btn-payer-2" onclick="selectEditPayer('2')" class="h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant">U2</button>
+                        <button type="button" id="edit-btn-payer-3" onclick="selectEditPayer('3')" class="h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant">50/50</button>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input id="edit-is-pending" type="checkbox" class="sr-only peer"/>
+                        <div class="w-11 h-6 bg-surface-variant rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                    <span class="font-label-md text-label-md text-on-surface-variant">Gasto Pendiente</span>
+                </div>
+                <button type="submit" class="w-full h-12 bg-primary text-on-primary font-bold rounded-xl active:scale-[0.98] transition-transform">
+                    Guardar Cambios
+                </button>
+            </form>
+        </div>
     </div>
 
     <script src="index.js"></script>
