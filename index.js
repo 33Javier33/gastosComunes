@@ -4,6 +4,52 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbwEVnRw5npVWcO7EI8u5lS2
 
 let authData             = JSON.parse(localStorage.getItem('authData'));
 let expenses             = JSON.parse(localStorage.getItem('sharedExpenses')) || [];
+
+/**
+ * Normalizes expenses loaded from localStorage or from the Sheet.
+ * Google Sheets auto-converts numeric strings → numbers and date strings → Date objects.
+ * Old localStorage data may also have paidBy as a number instead of string.
+ */
+function normalizeExpenses() {
+    let changed = false;
+    expenses = expenses.map(exp => {
+        const n = { ...exp };
+
+        // id must be a non-empty string
+        if (!n.id || n.id === 'undefined' || n.id === 'null') {
+            n.id = String(Date.now()) + String(Math.random()).slice(2);
+            changed = true;
+        } else {
+            n.id = String(n.id);
+        }
+
+        // paidBy must be '1', '2', or '3'
+        n.paidBy = String(n.paidBy ?? '1');
+        if (!['1', '2', '3'].includes(n.paidBy)) { n.paidBy = '1'; changed = true; }
+
+        // date must be YYYY-MM-DD string
+        if (n.date) {
+            const str   = String(n.date);
+            const match = str.match(/(\d{4})-(\d{2})-(\d{2})/);
+            if (match) {
+                n.date = `${match[1]}-${match[2]}-${match[3]}`;
+            } else {
+                n.date = new Date().toISOString().substring(0, 10);
+                changed = true;
+            }
+        }
+
+        // type must be 'paid' or 'pending'
+        if (!['paid', 'pending'].includes(n.type)) { n.type = 'paid'; changed = true; }
+
+        // deleted must be boolean
+        if (n.deleted === undefined) { n.deleted = false; changed = true; }
+        else n.deleted = Boolean(n.deleted === true || n.deleted === 'true' || n.deleted === 'TRUE');
+
+        return n;
+    });
+    if (changed) persistExpenses();
+}
 let selectedLoginUser    = '1';
 let currentPayerSelection = '1';
 let editPayerSelection   = '1';
@@ -54,6 +100,9 @@ function showAlert(elementId, message, isInfo = false) {
 // ─── 3. BOOT ─────────────────────────────────────────────────────────────────
 
 async function initApp() {
+    // Always normalize first — fixes corrupt ids/dates from old localStorage or Sheet reads
+    normalizeExpenses();
+
     if (authData) {
         if (sessionStorage.getItem('isLoggedIn')) {
             launchMainApp();
@@ -71,7 +120,9 @@ async function initApp() {
             authData = remote.authData;
             localStorage.setItem('authData', JSON.stringify(authData));
             if (remote.expenses && remote.expenses.length) {
-                expenses = remote.expenses.filter(e => !e.deleted);
+                // Merge remote expenses and normalize
+                expenses = remote.expenses;
+                normalizeExpenses();
                 persistExpenses();
             }
             showBootLoader(false);
@@ -80,7 +131,8 @@ async function initApp() {
             showBootLoader(false);
             showView('setup-view');
         }
-    } catch {
+    } catch (err) {
+        console.warn('[SpendSync] Boot pull failed:', err);
         showBootLoader(false);
         showView('setup-view');
     }
@@ -120,9 +172,23 @@ document.getElementById('setup-form').addEventListener('submit', async function 
     sessionStorage.setItem('isLoggedIn', 'true');
     sessionStorage.setItem('currentUser', '1');
 
-    try { await pushToSheet(); } catch (err) { console.warn('[SpendSync] Setup sync failed:', err); }
+    // Show saving state
+    const btn = this.querySelector('button[type="submit"]');
+    btn.textContent = 'Guardando en la nube...';
+    btn.disabled = true;
 
-    launchMainApp();
+    try {
+        await pushToSheet();
+        // Brief confirmation before launching
+        showAlert('setup-alert', 'Configuración guardada en Google Sheets. Los dos dispositivos quedan sincronizados.', true);
+        setTimeout(() => launchMainApp(), 1200);
+    } catch (err) {
+        console.error('[SpendSync] Setup sync failed:', err);
+        showAlert('setup-alert', `Guardado localmente. Error de sync: ${err.message} — podrás sincronizar desde Ajustes.`);
+        btn.textContent = 'Continuar sin sync';
+        btn.disabled = false;
+        btn.onclick = () => launchMainApp();
+    }
 });
 
 // ─── 5. LOGIN ────────────────────────────────────────────────────────────────
@@ -398,8 +464,15 @@ document.getElementById('edit-form').addEventListener('submit', function (e) {
 const formatCurrency = amount =>
     new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(amount);
 
-const formatDate = dateString =>
-    new Date(dateString + 'T00:00:00').toLocaleDateString('es-CL', { year: 'numeric', month: 'short', day: '2-digit' });
+const formatDate = dateString => {
+    if (!dateString) return 'Sin fecha';
+    // Extract YYYY-MM-DD regardless of whether it's a full ISO string or bare date
+    const match = String(dateString).match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return 'Fecha inválida';
+    const d = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00`);
+    if (isNaN(d.getTime())) return 'Fecha inválida';
+    return d.toLocaleDateString('es-CL', { year: 'numeric', month: 'short', day: '2-digit' });
+};
 
 function resolvePayerName(val) {
     if (val === '1') return authData.p1Name;
@@ -573,6 +646,7 @@ async function silentPull() {
             localStorage.setItem('authData', JSON.stringify(authData));
         }
         mergeExpenses(remote.expenses);
+        normalizeExpenses();  // fix any corrupt data from the Sheet
         persistExpenses();
         renderExpenses();
         updateSummary();
@@ -598,6 +672,7 @@ window.manualSync = async function () {
             localStorage.setItem('authData', JSON.stringify(authData));
         }
         mergeExpenses(remote.expenses);
+        normalizeExpenses();  // fix any corrupt data from the Sheet
         persistExpenses();
         renderExpenses();
         updateSummary();
