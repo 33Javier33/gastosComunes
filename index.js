@@ -1,909 +1,636 @@
-// ─── 1. CONSTANTS & STATE ────────────────────────────────────────────────────
+// ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwEVnRw5npVWcO7EI8u5lS2KbHeq5dYlh_41wHl1ZugSNq7gdpSaOiIRO1ek8Rlb-Tr/exec';
 
-let authData              = JSON.parse(localStorage.getItem('authData'));
-let expenses              = JSON.parse(localStorage.getItem('sharedExpenses')) || [];
-let archivedMonths        = JSON.parse(localStorage.getItem('archivedMonths')) || [];
-let deletedIds            = new Set(JSON.parse(localStorage.getItem('deletedIds') || '[]'));
-let selectedLoginUser     = '1';
-let currentPayerSelection = '1';
-let editPayerSelection    = '1';
-let editExpenseId         = null;
-let autoSyncTimer         = null;
-let isSyncing             = false;
+// ─── ESTADO ───────────────────────────────────────────────────────────────────
 
-// Auto-logout when tab is hidden
-document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') {
-        sessionStorage.removeItem('isLoggedIn');
-        sessionStorage.removeItem('currentUser');
-        if (authData) location.reload();
+let config  = JSON.parse(localStorage.getItem('ss_config') || 'null');
+let gastos  = JSON.parse(localStorage.getItem('ss_gastos')  || '[]');
+let usuario = null;   // '1' o '2'
+let pagSel  = '1';    // payer seleccionado en formulario
+let editId  = null;   // id del gasto en edición
+let editPag = '1';    // payer en modal de edición
+let syncTimer  = null;
+let sincroni   = false;
+
+// ─── AUTO-LOGOUT ──────────────────────────────────────────────────────────────
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && config) {
+        sessionStorage.removeItem('ss_usuario');
+        location.reload();
     }
 });
 
-// ─── 2. DATA NORMALIZATION ────────────────────────────────────────────────────
-
-function normalizeExpenses() {
-    let changed = false;
-    expenses = expenses.map(exp => {
-        const n = { ...exp };
-        if (!n.id || n.id === 'undefined' || n.id === 'null') {
-            n.id = String(Date.now()) + String(Math.random()).slice(2);
-            changed = true;
-        } else { n.id = String(n.id); }
-        n.paidBy = String(n.paidBy ?? '1');
-        if (!['1','2','3'].includes(n.paidBy)) { n.paidBy = '1'; changed = true; }
-        if (n.date) {
-            const m = String(n.date).match(/(\d{4})-(\d{2})-(\d{2})/);
-            n.date  = m ? `${m[1]}-${m[2]}-${m[3]}` : new Date().toISOString().substring(0, 10);
-        }
-        if (!['paid','pending'].includes(n.type)) { n.type = 'paid'; changed = true; }
-        n.deleted = Boolean(n.deleted === true || n.deleted === 'true' || n.deleted === 'TRUE');
-        return n;
-    });
-    if (changed) persistExpenses();
-}
-
-// ─── 3. VIEW ROUTING ─────────────────────────────────────────────────────────
-
-function showView(viewId) {
-    document.querySelectorAll('section[id$="-view"]').forEach(v => {
-        v.classList.add('hidden');
-        v.classList.remove('flex', 'block');
-    });
-    const target = document.getElementById(viewId);
-    target.classList.remove('hidden');
-    target.classList.add(viewId === 'main-view' ? 'block' : 'flex');
-    document.querySelectorAll('[id$="-alert"]').forEach(a => {
-        a.classList.add('hidden');
-        a.textContent = '';
-        a.className = a.className.replace('text-secondary', 'text-error');
-    });
-}
-
-function showAlert(elementId, message, isInfo = false) {
-    const el = document.getElementById(elementId);
-    el.textContent = message;
-    el.classList.remove('hidden');
-    el.classList.remove(isInfo ? 'text-error' : 'text-secondary');
-    el.classList.add(isInfo ? 'text-secondary' : 'text-error');
-}
-
-// ─── 4. BOOT ─────────────────────────────────────────────────────────────────
+// ─── BOOT ─────────────────────────────────────────────────────────────────────
 
 async function initApp() {
-    // After a full reset, skip the boot pull so Sheet data doesn't restore
-    if (localStorage.getItem('skipBootPull')) {
-        localStorage.removeItem('skipBootPull');
-        showView('setup-view');
+    // Tras un reset completo, ir directo a configuración sin pull
+    if (localStorage.getItem('ss_reset')) {
+        localStorage.removeItem('ss_reset');
+        mostrarVista('setup-view');
         return;
     }
 
-    normalizeExpenses();
+    const sesion = sessionStorage.getItem('ss_usuario');
 
-    if (authData) {
-        if (sessionStorage.getItem('isLoggedIn')) {
-            launchMainApp();
+    if (config) {
+        // Hay config local → mostrar login o app
+        if (sesion) {
+            usuario = sesion;
+            lanzarApp();
         } else {
-            showLoginView();
+            mostrarLogin();
         }
+        // Pull silencioso en segundo plano para reflejar cambios del Sheet
+        pullSilencioso();
         return;
     }
 
-    showBootLoader(true);
+    // Sin config local → intentar cargar desde el Sheet
+    bootLoader(true);
     try {
-        const remote = await pullFromSheet();
-        if (remote.authData) {
-            authData = remote.authData;
-            localStorage.setItem('authData', JSON.stringify(authData));
-            if (remote.expenses?.length) {
-                expenses = remote.expenses;
-                normalizeExpenses();
-                persistExpenses();
-            }
-            if (remote.archivedMonths?.length) {
-                mergeArchivedMonths(remote.archivedMonths);
-                persistArchive();
-            }
-            showBootLoader(false);
-            showLoginView();
+        const r = await pullDeSheet();
+        if (r.config) {
+            config = r.config;
+            gastos = normalizarGastos(r.gastos || []);
+            guardarLocal();
+            bootLoader(false);
+            if (sesion) { usuario = sesion; lanzarApp(); } else mostrarLogin();
         } else {
-            showBootLoader(false);
-            showView('setup-view');
+            bootLoader(false);
+            mostrarVista('setup-view');
         }
-    } catch (err) {
-        console.warn('[SpendSync] Boot pull failed:', err);
-        showBootLoader(false);
-        showView('setup-view');
+    } catch {
+        bootLoader(false);
+        mostrarVista('setup-view');
     }
 }
 
-function showBootLoader(show) {
-    document.getElementById('boot-loader').classList.toggle('hidden', !show);
+function bootLoader(mostrar) {
+    document.getElementById('boot-loader').classList.toggle('hidden', !mostrar);
 }
 
-function showLoginView() {
-    document.getElementById('lbl-login-u1').textContent = authData.p1Name;
-    document.getElementById('btn-login-u1').querySelector('span.material-symbols-outlined').textContent = authData.p1Name.charAt(0).toUpperCase();
-    document.getElementById('lbl-login-u2').textContent = authData.p2Name;
-    document.getElementById('btn-login-u2').querySelector('span.material-symbols-outlined').textContent = authData.p2Name.charAt(0).toUpperCase();
-    selectLoginUser('1');
-    showView('login-view');
+// ─── VISTAS ───────────────────────────────────────────────────────────────────
+
+function mostrarVista(id) {
+    document.querySelectorAll('.vista').forEach(v => v.classList.add('hidden'));
+    const t = document.getElementById(id);
+    t.classList.remove('hidden');
+    t.classList.add(id === 'main-view' ? 'block' : 'flex');
+    document.querySelectorAll('.alerta').forEach(a => { a.classList.add('hidden'); a.textContent = ''; });
 }
 
-// ─── 5. SETUP ────────────────────────────────────────────────────────────────
+function mostrarAlerta(id, msg, esInfo = false) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.classList.remove('hidden', 'text-error', 'text-secondary');
+    el.classList.add(esInfo ? 'text-secondary' : 'text-error');
+}
+
+function mostrarLogin() {
+    document.getElementById('login-u1-nombre').textContent = config.nombre1;
+    document.getElementById('login-u2-nombre').textContent = config.nombre2;
+    seleccionarUsuarioLogin('1');
+    mostrarVista('login-view');
+}
+
+// ─── SETUP ────────────────────────────────────────────────────────────────────
 
 document.getElementById('setup-form').addEventListener('submit', async function (e) {
     e.preventDefault();
-    const p1Name = document.getElementById('setup-name1').value.trim();
-    const p1Pin  = document.getElementById('setup-pin1').value;
-    const p1Rut  = document.getElementById('setup-rut1').value.trim();
-    const p2Name = document.getElementById('setup-name2').value.trim();
-    const p2Pin  = document.getElementById('setup-pin2').value;
-    const p2Rut  = document.getElementById('setup-rut2').value.trim();
+    const n1  = v('setup-n1'), p1 = v('setup-p1'), r1 = v('setup-r1');
+    const n2  = v('setup-n2'), p2 = v('setup-p2'), r2 = v('setup-r2');
 
-    if (p1Pin.length !== 4 || p2Pin.length !== 4) {
-        showAlert('setup-alert', 'Los PINs deben tener 4 dígitos.');
+    if (p1.length !== 4 || p2.length !== 4) {
+        mostrarAlerta('setup-alert', 'Los PINs deben tener exactamente 4 dígitos.');
         return;
     }
 
-    authData = { p1Name, p1Pin, p1Rut, p2Name, p2Pin, p2Rut };
-    localStorage.setItem('authData', JSON.stringify(authData));
-    sessionStorage.setItem('isLoggedIn', 'true');
-    sessionStorage.setItem('currentUser', '1');
+    config = { nombre1: n1, pin1: p1, rut1: r1, nombre2: n2, pin2: p2, rut2: r2 };
+    guardarLocal();
 
-    const btn = this.querySelector('button[type="submit"]');
-    btn.textContent = 'Guardando en la nube...';
+    const btn = this.querySelector('button[type=submit]');
     btn.disabled = true;
+    btn.textContent = 'Guardando…';
 
     try {
-        await pushToSheet();
-        showAlert('setup-alert', 'Configuración guardada en Google Sheets. Los dos dispositivos quedan sincronizados.', true);
-        setTimeout(() => launchMainApp(), 1200);
+        await pushASheet();
+        mostrarAlerta('setup-alert', '¡Configuración guardada! Ambos dispositivos quedarán sincronizados.', true);
+        setTimeout(() => { sessionStorage.setItem('ss_usuario', '1'); usuario = '1'; lanzarApp(); }, 1200);
     } catch (err) {
-        console.error('[SpendSync] Setup sync failed:', err);
-        showAlert('setup-alert', `Guardado localmente. Error de sync: ${err.message}`);
+        mostrarAlerta('setup-alert', 'Guardado local. Sin conexión al Sheet: ' + err.message);
         btn.textContent = 'Continuar sin sync';
         btn.disabled = false;
-        btn.onclick = () => launchMainApp();
+        btn.onclick = () => { sessionStorage.setItem('ss_usuario', '1'); usuario = '1'; lanzarApp(); };
     }
 });
 
-// ─── 6. LOGIN ────────────────────────────────────────────────────────────────
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
 
-function selectLoginUser(userStr) {
-    selectedLoginUser = userStr;
-    const btn1 = document.getElementById('btn-login-u1');
-    const btn2 = document.getElementById('btn-login-u2');
-    if (userStr === '1') {
-        btn1.classList.replace('border-outline-variant', 'border-primary'); btn1.classList.add('border-2');
-        btn2.classList.replace('border-primary', 'border-outline-variant'); btn2.classList.remove('border-2');
-    } else {
-        btn2.classList.replace('border-outline-variant', 'border-primary'); btn2.classList.add('border-2');
-        btn1.classList.replace('border-primary', 'border-outline-variant'); btn1.classList.remove('border-2');
-    }
+let loginUser = '1';
+
+function seleccionarUsuarioLogin(u) {
+    loginUser = u;
+    ['1','2'].forEach(n => {
+        const btn = document.getElementById('login-btn-u' + n);
+        const activo = n === u;
+        btn.classList.toggle('border-primary', activo);
+        btn.classList.toggle('border-2', activo);
+        btn.classList.toggle('border-outline-variant', !activo);
+    });
 }
 
 document.getElementById('login-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    const pin = document.getElementById('login-pin').value;
-    const correctPin = selectedLoginUser === '1' ? authData.p1Pin : authData.p2Pin;
-    if (pin === correctPin) {
-        sessionStorage.setItem('isLoggedIn', 'true');
-        sessionStorage.setItem('currentUser', selectedLoginUser);
+    const pin = v('login-pin');
+    const ok  = loginUser === '1' ? pin === config.pin1 : pin === config.pin2;
+    if (ok) {
+        sessionStorage.setItem('ss_usuario', loginUser);
+        usuario = loginUser;
         document.getElementById('login-pin').value = '';
-        launchMainApp();
+        lanzarApp();
     } else {
-        showAlert('login-alert', 'PIN incorrecto. Intenta de nuevo.');
+        mostrarAlerta('login-alert', 'PIN incorrecto.');
         document.getElementById('login-pin').value = '';
     }
 });
-
-// ─── 7. PIN RECOVERY ─────────────────────────────────────────────────────────
 
 document.getElementById('recovery-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    const rut = document.getElementById('recovery-rut').value.trim();
-    if (rut === authData.p1Rut) showAlert('recovery-alert', `Hola ${authData.p1Name}, tu PIN es: ${authData.p1Pin}`, true);
-    else if (rut === authData.p2Rut) showAlert('recovery-alert', `Hola ${authData.p2Name}, tu PIN es: ${authData.p2Pin}`, true);
-    else showAlert('recovery-alert', 'El RUT no coincide con los registros.');
+    const rut = v('recovery-rut');
+    if (rut === config.rut1)      mostrarAlerta('recovery-alert', `PIN de ${config.nombre1}: ${config.pin1}`, true);
+    else if (rut === config.rut2) mostrarAlerta('recovery-alert', `PIN de ${config.nombre2}: ${config.pin2}`, true);
+    else                           mostrarAlerta('recovery-alert', 'RUT no encontrado.');
 });
 
-// ─── 8. LOGOUT ───────────────────────────────────────────────────────────────
-
 window.logout = function () {
-    sessionStorage.removeItem('isLoggedIn');
-    sessionStorage.removeItem('currentUser');
+    sessionStorage.removeItem('ss_usuario');
+    usuario = null;
     initApp();
 };
 
-// ─── 9. MAIN APP ─────────────────────────────────────────────────────────────
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
-function launchMainApp() {
-    showView('main-view');
-    document.getElementById('date').valueAsDate = new Date();
+function lanzarApp() {
+    mostrarVista('main-view');
 
-    const currentUser = sessionStorage.getItem('currentUser');
-    const myName = currentUser === '1' ? authData.p1Name : authData.p2Name;
+    const nombre = usuario === '1' ? config.nombre1 : config.nombre2;
+    document.getElementById('header-nombre').textContent = nombre;
+    document.getElementById('header-inicial').textContent = nombre.charAt(0).toUpperCase();
+    document.getElementById('btn-pag-1').textContent = config.nombre1;
+    document.getElementById('btn-pag-2').textContent = config.nombre2;
+    document.getElementById('lbl-total-n1').textContent = config.nombre1;
+    document.getElementById('lbl-total-n2').textContent = config.nombre2;
+    document.getElementById('lbl-pend-n1').textContent  = 'Pendiente ' + config.nombre1;
+    document.getElementById('lbl-pend-n2').textContent  = 'Pendiente ' + config.nombre2;
 
-    document.getElementById('current-user-name').textContent = `Hola, ${myName}`;
-    document.getElementById('current-user-initial').textContent = myName.charAt(0).toUpperCase();
-    document.getElementById('btn-payer-1').textContent = authData.p1Name;
-    document.getElementById('btn-payer-2').textContent = authData.p2Name;
-    document.getElementById('lbl-total1-name').textContent = `${authData.p1Name} Pagó`;
-    document.getElementById('lbl-total2-name').textContent = `${authData.p2Name} Pagó`;
-    document.getElementById('lbl-pending1').textContent = authData.p1Name;
-    document.getElementById('lbl-pending2').textContent = authData.p2Name;
-
-    selectPayer('1');
-    renderExpenses();
-    updateSummary();
-    renderArchive();
-    updateLastSyncLabel();
-    silentPull();
+    document.getElementById('fecha').valueAsDate = new Date();
+    seleccionarPagador('1');
+    renderTodo();
 }
 
-function updateLastSyncLabel() {
-    const el = document.getElementById('last-sync-label');
-    if (!el) return;
-    const ts = localStorage.getItem('lastSync');
-    el.textContent = ts
-        ? `Última sync: ${new Date(ts).toLocaleDateString('es-CL')} ${new Date(ts).toLocaleTimeString('es-CL', { hour:'2-digit', minute:'2-digit' })}`
-        : 'Auto-sync activo. Los cambios se envían solos.';
-}
+// ─── AGREGAR GASTO ────────────────────────────────────────────────────────────
 
-// ─── 10. ADD EXPENSE ─────────────────────────────────────────────────────────
-
-document.getElementById('amount').addEventListener('input', function () {
+document.getElementById('monto').addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
-    this.value = v ? new Intl.NumberFormat('es-CL').format(parseInt(v)) : '';
+    this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
 });
 
-function selectPayer(val) {
-    currentPayerSelection = val;
-    ['btn-payer-1','btn-payer-2','btn-payer-3'].forEach((id, i) => {
-        const btn = document.getElementById(id);
-        btn.className = String(i+1) === val
-            ? 'h-10 text-xs font-bold rounded-lg border border-primary text-primary bg-primary-container/10'
-            : 'h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant bg-transparent';
+function seleccionarPagador(p) {
+    pagSel = p;
+    ['1','2','compartido'].forEach(x => {
+        const btn = document.getElementById('btn-pag-' + x);
+        const sel = x === p;
+        btn.classList.toggle('border-primary', sel);
+        btn.classList.toggle('text-primary', sel);
+        btn.classList.toggle('bg-primary/10', sel);
+        btn.classList.toggle('border-outline-variant', !sel);
+        btn.classList.toggle('text-on-surface-variant', !sel);
     });
 }
 
-document.getElementById('expense-form').addEventListener('submit', function (e) {
+document.getElementById('gasto-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    const rawAmount = document.getElementById('amount').value.replace(/\D/g, '');
-    expenses.push({
-        id: Date.now().toString(),
-        type: document.getElementById('expense-is-pending').checked ? 'pending' : 'paid',
-        date: document.getElementById('date').value,
-        concept: document.getElementById('concept').value.trim(),
-        amount: parseFloat(rawAmount),
-        paidBy: currentPayerSelection,
-        updatedAt: new Date().toISOString(),
-        deleted: false
+    const monto = +v('monto').replace(/\D/g, '');
+    if (!monto) return;
+
+    gastos.push({
+        id:       Date.now().toString(),
+        fecha:    v('fecha'),
+        concepto: v('concepto').trim(),
+        monto,
+        pagador:  pagSel,
+        tipo:     document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto'
     });
-    persistExpenses();
-    scheduleAutoSync();
-    document.getElementById('concept').value = '';
-    document.getElementById('amount').value = '';
-    document.getElementById('expense-is-pending').checked = false;
-    document.getElementById('concept').focus();
-    renderExpenses();
-    updateSummary();
+
+    guardarLocal();
+    schedulePush();
+    this.reset();
+    document.getElementById('fecha').valueAsDate = new Date();
+    document.getElementById('es-pendiente').checked = false;
+    document.getElementById('concepto').focus();
+    seleccionarPagador('1');
+    renderTodo();
 });
 
-// ─── 11. EXPENSE ACTIONS ─────────────────────────────────────────────────────
+// ─── ACCIONES SOBRE GASTOS ────────────────────────────────────────────────────
 
-window.markAsPaid = function (id) {
-    const idx = expenses.findIndex(e => e.id === id);
-    if (idx !== -1) {
-        expenses[idx].type = 'paid';
-        expenses[idx].updatedAt = new Date().toISOString();
-        persistExpenses();
-        scheduleAutoSync();
-        renderExpenses();
-        updateSummary();
-    }
+window.marcarPagado = function (id) {
+    const g = gastos.find(x => x.id === id);
+    if (!g) return;
+    g.tipo = 'gasto';
+    guardarLocal();
+    schedulePush();
+    renderTodo();
 };
 
-window.deleteExpense = function (id) {
+window.eliminar = function (id) {
     if (!confirm('¿Eliminar este movimiento?')) return;
-    const sid = String(id);
-    const before = expenses.length;
-    expenses = expenses.filter(e => e.id !== sid);
-    if (expenses.length === before) return; // ID not found, nothing to do
-    deletedIds.add(sid);
-    persistDeletedIds();
-    persistExpenses();
-    scheduleAutoSync();
-    renderExpenses();
-    updateSummary();
+    gastos = gastos.filter(x => x.id !== id);
+    guardarLocal();
+    schedulePush();
+    renderTodo();
 };
 
-// Clears ALL active expenses locally and from Google Sheets
-window.clearAllExpenses = function () {
-    if (!confirm('¿Borrar TODOS los gastos? También se vaciarán las hojas del Sheet.')) return;
-    toggleDrawer();
-
-    // Mark every current ID as permanently deleted so pull never restores them
-    expenses.forEach(e => deletedIds.add(String(e.id)));
-    persistDeletedIds();
-
-    expenses = [];
-    persistExpenses();
-    renderExpenses();
-    updateSummary();
-
-    // Fire-and-forget push so Sheet is cleared on new GAS
-    fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'push', expenses: [], authData, archivedMonths })
-    }).catch(err => console.warn('[SpendSync] Clear sheet failed (local cleared OK):', err));
-};
-
-// Full reset: wipes all data locally AND from Google Sheets, then goes to setup screen
-window.resetApp = function () {
-    if (!confirm('⚠️ ¿Resetear la aplicación completa?\n\nSe borrarán usuarios y gastos de ESTE dispositivo y del Sheet. Necesitarás configurar usuarios de nuevo.')) return;
-
-    // Fire-and-forget: push empty expenses to Sheet
-    fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'push', expenses: [], authData, archivedMonths: [] })
-    }).catch(() => {});
-
-    // Fire-and-forget: clear auth data from Sheet
-    fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'resetAuth' })
-    }).catch(() => {});
-
-    // Reset all in-memory state
-    authData = null;
-    expenses = [];
-    archivedMonths = [];
-    deletedIds = new Set();
-    editExpenseId = null;
-
-    // Clear storage and mark so that any subsequent reload skips the boot pull
-    localStorage.clear();
-    sessionStorage.clear();
-    localStorage.setItem('skipBootPull', '1');
-
-    // Go directly to setup view — no reload, so Sheet pull cannot restore old data
-    document.getElementById('setup-form').reset();
-    document.getElementById('setup-alert').classList.add('hidden');
-    showView('setup-view');
-};
-
-function persistExpenses() {
-    localStorage.setItem('sharedExpenses', JSON.stringify(expenses));
-}
-
-function persistDeletedIds() {
-    localStorage.setItem('deletedIds', JSON.stringify([...deletedIds]));
-}
-
-// ─── 12. EDIT MODAL ──────────────────────────────────────────────────────────
-
-document.getElementById('edit-amount').addEventListener('input', function () {
-    const v = this.value.replace(/\D/g, '');
-    this.value = v ? new Intl.NumberFormat('es-CL').format(parseInt(v)) : '';
-});
-
-window.openEditModal = function (id) {
-    const exp = expenses.find(e => e.id === id);
-    if (!exp) return;
-    editExpenseId = id;
-    document.getElementById('edit-id').value = id;
-    document.getElementById('edit-concept').value = exp.concept;
-    document.getElementById('edit-amount').value = new Intl.NumberFormat('es-CL').format(exp.amount);
-    document.getElementById('edit-date').value = exp.date;
-    document.getElementById('edit-is-pending').checked = exp.type === 'pending';
-    document.getElementById('edit-btn-payer-1').textContent = authData.p1Name;
-    document.getElementById('edit-btn-payer-2').textContent = authData.p2Name;
-    selectEditPayer(exp.paidBy);
+window.abrirEditar = function (id) {
+    const g = gastos.find(x => x.id === id);
+    if (!g) return;
+    editId  = id;
+    document.getElementById('edit-concepto').value = g.concepto;
+    document.getElementById('edit-monto').value = new Intl.NumberFormat('es-CL').format(g.monto);
+    document.getElementById('edit-fecha').value  = g.fecha;
+    document.getElementById('edit-pendiente').checked = g.tipo === 'pendiente';
+    document.getElementById('edit-btn-pag-1').textContent = config.nombre1;
+    document.getElementById('edit-btn-pag-2').textContent = config.nombre2;
+    seleccionarEditPagador(g.pagador);
     document.getElementById('edit-modal').classList.remove('hidden');
 };
 
-window.closeEditModal = function () {
+window.cerrarEditar = function () {
     document.getElementById('edit-modal').classList.add('hidden');
-    editExpenseId = null;
+    editId = null;
 };
 
-window.handleModalBackdrop = function (e) {
-    if (e.target === document.getElementById('edit-modal')) closeEditModal();
+window.fondoModal = function (e) {
+    if (e.target === document.getElementById('edit-modal')) cerrarEditar();
 };
 
-function selectEditPayer(val) {
-    editPayerSelection = val;
-    ['edit-btn-payer-1','edit-btn-payer-2','edit-btn-payer-3'].forEach((id, i) => {
-        const btn = document.getElementById(id);
-        btn.className = String(i+1) === val
-            ? 'h-10 text-xs font-bold rounded-lg border border-primary text-primary bg-primary-container/10'
-            : 'h-10 text-xs font-bold rounded-lg border border-outline-variant text-on-surface-variant bg-transparent';
+document.getElementById('edit-monto').addEventListener('input', function () {
+    const v = this.value.replace(/\D/g, '');
+    this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
+});
+
+function seleccionarEditPagador(p) {
+    editPag = p;
+    ['1','2','compartido'].forEach(x => {
+        const btn = document.getElementById('edit-btn-pag-' + x);
+        const sel = x === p;
+        btn.classList.toggle('border-primary', sel);
+        btn.classList.toggle('text-primary', sel);
+        btn.classList.toggle('bg-primary/10', sel);
+        btn.classList.toggle('border-outline-variant', !sel);
+        btn.classList.toggle('text-on-surface-variant', !sel);
     });
 }
 
 document.getElementById('edit-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    if (!editExpenseId) return;
-    const idx = expenses.findIndex(exp => exp.id === editExpenseId);
+    const idx = gastos.findIndex(x => x.id === editId);
     if (idx === -1) return;
-    expenses[idx] = {
-        ...expenses[idx],
-        concept:   document.getElementById('edit-concept').value.trim(),
-        amount:    parseFloat(document.getElementById('edit-amount').value.replace(/\D/g, '')),
-        date:      document.getElementById('edit-date').value,
-        type:      document.getElementById('edit-is-pending').checked ? 'pending' : 'paid',
-        paidBy:    editPayerSelection,
-        updatedAt: new Date().toISOString()
+    gastos[idx] = {
+        ...gastos[idx],
+        concepto: v('edit-concepto').trim(),
+        monto:    +v('edit-monto').replace(/\D/g, ''),
+        fecha:    v('edit-fecha'),
+        tipo:     document.getElementById('edit-pendiente').checked ? 'pendiente' : 'gasto',
+        pagador:  editPag
     };
-    persistExpenses();
-    scheduleAutoSync();
-    renderExpenses();
-    updateSummary();
-    closeEditModal();
+    guardarLocal();
+    schedulePush();
+    renderTodo();
+    cerrarEditar();
 });
 
-// ─── 13. HELPERS ─────────────────────────────────────────────────────────────
+// ─── RENDER ───────────────────────────────────────────────────────────────────
 
-const formatCurrency = amount =>
-    new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(amount);
-
-const formatDate = dateString => {
-    if (!dateString) return 'Sin fecha';
-    const m = String(dateString).match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (!m) return 'Fecha inválida';
-    const d = new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`);
-    return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString('es-CL', { year:'numeric', month:'short', day:'2-digit' });
-};
-
-function resolvePayerName(val) {
-    if (val === '1') return authData.p1Name;
-    if (val === '2') return authData.p2Name;
-    return '50/50';
+function renderTodo() {
+    renderResumen();
+    renderPendientes();
+    renderHistorial();
 }
 
-function activeExpenses() { return expenses.filter(e => !e.deleted); }
+function renderResumen() {
+    let t1 = 0, t2 = 0, tc = 0, p1 = 0, p2 = 0;
+    gastos.forEach(g => {
+        const m = g.monto;
+        if (g.tipo === 'pendiente') {
+            if (g.pagador === '1') p1 += m;
+            else if (g.pagador === '2') p2 += m;
+            else { p1 += m / 2; p2 += m / 2; }
+            return;
+        }
+        if (g.pagador === '1') t1 += m;
+        else if (g.pagador === '2') t2 += m;
+        else { tc += m; t1 += m / 2; t2 += m / 2; }
+    });
 
-// ─── 14. RENDER EXPENSES ─────────────────────────────────────────────────────
+    document.getElementById('total-general').textContent = fmt(t1 + t2);
+    document.getElementById('total-compartido').textContent = 'Incluye ' + fmt(tc) + ' compartidos';
+    document.getElementById('total-n1').textContent = fmt(t1);
+    document.getElementById('total-n2').textContent = fmt(t2);
+    document.getElementById('pend-n1').textContent  = fmt(p1);
+    document.getElementById('pend-n2').textContent  = fmt(p2);
+}
 
-function renderExpenses() {
-    const expenseList = document.getElementById('expense-list');
-    const pendingList = document.getElementById('pending-list');
-    expenseList.innerHTML = '';
-    pendingList.innerHTML = '';
-    let hasPaid = false, hasPending = false;
+function renderPendientes() {
+    const lista = document.getElementById('lista-pendientes');
+    const vacio = document.getElementById('vacio-pendientes');
+    const items = gastos.filter(g => g.tipo === 'pendiente').sort(porFecha);
+    lista.innerHTML = '';
 
-    activeExpenses().sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(exp => {
-        const payerName  = resolvePayerName(exp.paidBy);
-        const splitBadge = exp.paidBy === '3'
-            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded mt-1 inline-block">Aporte: ${formatCurrency(exp.amount/2)} c/u</span>`
+    if (!items.length) { vacio.classList.remove('hidden'); return; }
+    vacio.classList.add('hidden');
+
+    items.forEach(g => {
+        const badge = g.pagador === 'compartido'
+            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(g.monto / 2)}</span>`
             : '';
-
-        if ((exp.type || 'paid') === 'paid') {
-            hasPaid = true;
-            expenseList.innerHTML += `
-            <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between">
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center shrink-0">
-                        <span class="material-symbols-outlined text-primary">paid</span>
-                    </div>
-                    <div class="min-w-0">
-                        <p class="font-label-md text-label-md truncate">${exp.concept}</p>
-                        <p class="text-[10px] text-on-surface-variant uppercase font-bold">${formatDate(exp.date)} • ${payerName}</p>
-                    </div>
+        lista.innerHTML += `
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-sm">
+            <div class="flex justify-between items-start">
+                <div>
+                    <p class="font-bold text-on-surface">${esc(g.concepto)}</p>
+                    <p class="text-xs text-on-surface-variant">${fmtFecha(g.fecha)} · ${nomPagador(g.pagador)}</p>
+                    ${badge}
                 </div>
-                <div class="text-right flex flex-col items-end justify-center shrink-0 ml-2">
-                    <div class="flex items-center gap-1">
-                        <span class="font-bold text-on-surface">${formatCurrency(exp.amount)}</span>
-                        <button onclick="openEditModal('${exp.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-primary transition-colors">
-                            <span class="material-symbols-outlined text-[18px]">edit</span>
-                        </button>
-                        <button onclick="deleteExpense('${exp.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-error transition-colors">
-                            <span class="material-symbols-outlined text-[18px]">delete</span>
-                        </button>
-                    </div>
-                    ${splitBadge}
-                </div>
-            </div>`;
-        } else {
-            hasPending = true;
-            const pendingSplitBadge = exp.paidBy === '3'
-                ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded mt-1 inline-block">Deuda: ${formatCurrency(exp.amount/2)} c/u</span>`
-                : '';
-            pendingList.innerHTML += `
-            <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-[0px_4px_12px_rgba(0,0,0,0.05)]">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <h4 class="font-bold text-on-surface">${exp.concept}</h4>
-                        <p class="text-xs text-on-surface-variant">${formatDate(exp.date)} • Pendiente por ${payerName}</p>
-                    </div>
-                    <div class="text-right">
-                        <span class="font-headline-md text-headline-md text-on-surface block">${formatCurrency(exp.amount)}</span>
-                        ${pendingSplitBadge}
-                    </div>
-                </div>
-                <div class="flex gap-2 mt-3">
-                    <button onclick="markAsPaid('${exp.id}')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95 transition-transform">
-                        <span class="material-symbols-outlined text-sm">check_circle</span>
-                        Marcar Pagado
-                    </button>
-                    <button onclick="openEditModal('${exp.id}')" class="w-9 h-9 border border-primary text-primary rounded-lg flex items-center justify-center active:scale-95 transition-transform">
-                        <span class="material-symbols-outlined text-sm">edit</span>
-                    </button>
-                    <button onclick="deleteExpense('${exp.id}')" class="w-9 h-9 border border-error text-error rounded-lg flex items-center justify-center active:scale-95 transition-transform">
-                        <span class="material-symbols-outlined text-sm">delete</span>
-                    </button>
-                </div>
-            </div>`;
-        }
-    });
-
-    document.getElementById('expense-empty-state').classList.toggle('hidden', hasPaid);
-    document.getElementById('pending-empty-state').classList.toggle('hidden', hasPending);
-}
-
-// ─── 15. SUMMARY ─────────────────────────────────────────────────────────────
-
-function updateSummary() {
-    let totalPaidP1 = 0, totalPaidP2 = 0, totalPendingP1 = 0, totalPendingP2 = 0, sharedPaidTotal = 0;
-    activeExpenses().forEach(exp => {
-        const half = exp.amount / 2;
-        if ((exp.type || 'paid') === 'paid') {
-            if (exp.paidBy === '3') { totalPaidP1 += half; totalPaidP2 += half; sharedPaidTotal += exp.amount; }
-            else if (exp.paidBy === '1') totalPaidP1 += exp.amount;
-            else if (exp.paidBy === '2') totalPaidP2 += exp.amount;
-        } else {
-            if (exp.paidBy === '3') { totalPendingP1 += half; totalPendingP2 += half; }
-            else if (exp.paidBy === '1') totalPendingP1 += exp.amount;
-            else if (exp.paidBy === '2') totalPendingP2 += exp.amount;
-        }
-    });
-    document.getElementById('total-expenses').textContent = formatCurrency(totalPaidP1 + totalPaidP2);
-    document.getElementById('total-shared-detail').textContent = `Incluye ${formatCurrency(sharedPaidTotal)} en gastos 50/50`;
-    document.getElementById('paid-p1').textContent = formatCurrency(totalPaidP1);
-    document.getElementById('paid-p2').textContent = formatCurrency(totalPaidP2);
-    document.getElementById('pending-p1').textContent = formatCurrency(totalPendingP1);
-    document.getElementById('pending-p2').textContent = formatCurrency(totalPendingP2);
-}
-
-// ─── 16. ARCHIVE ─────────────────────────────────────────────────────────────
-
-function persistArchive() {
-    localStorage.setItem('archivedMonths', JSON.stringify(archivedMonths));
-}
-
-function calculateSummary(exps) {
-    let total = 0, p1Total = 0, p2Total = 0, sharedTotal = 0;
-    exps.filter(e => !e.deleted).forEach(exp => {
-        const half = exp.amount / 2;
-        if (exp.paidBy === '3') { p1Total += half; p2Total += half; sharedTotal += exp.amount; total += exp.amount; }
-        else if (exp.paidBy === '1') { p1Total += exp.amount; total += exp.amount; }
-        else if (exp.paidBy === '2') { p2Total += exp.amount; total += exp.amount; }
-    });
-    return { total, p1Total, p2Total, sharedTotal };
-}
-
-window.archiveCurrentMonth = async function () {
-    const active = activeExpenses();
-    if (active.length === 0) {
-        alert('No hay gastos activos para archivar.');
-        return;
-    }
-
-    const now       = new Date();
-    const monthId   = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const rawName   = now.toLocaleDateString('es-CL', { month:'long', year:'numeric' });
-    const sheetName = `Gastos ${rawName.charAt(0).toUpperCase()}${rawName.slice(1)}`;
-
-    if (!confirm(`¿Archivar los ${active.length} gastos activos como "${sheetName}"?\n\nQuedarán guardados en Sheets y se limpirá la lista activa.`)) return;
-
-    const archive = {
-        id: monthId,
-        name: sheetName,
-        archivedAt: new Date().toISOString(),
-        expenses: active,
-        summary: calculateSummary(active)
-    };
-
-    // Remove any previous archive for same month
-    archivedMonths = archivedMonths.filter(a => a.id !== monthId);
-    archivedMonths.unshift(archive);
-    persistArchive();
-
-    // Clear active expenses
-    expenses = expenses.map(e => ({ ...e, deleted: true, updatedAt: new Date().toISOString() }));
-    persistExpenses();
-    renderExpenses();
-    updateSummary();
-    renderArchive();
-    toggleDrawer();
-
-    try {
-        setSyncUiState(true);
-        // Push archive tab + clear active
-        await fetch(GAS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ action: 'archive', archive })
-        });
-        await pushToSheet();
-        setSyncUiState(false);
-        showDrawerSyncStatus(`"${sheetName}" archivado en Sheets.`, false);
-    } catch (err) {
-        setSyncUiState(false);
-        console.warn('[SpendSync] Archive sync failed:', err);
-    }
-};
-
-function mergeArchivedMonths(remote) {
-    const map = new Map(archivedMonths.map(a => [a.id, a]));
-    remote.forEach(r => {
-        if (!map.has(r.id)) map.set(r.id, r);
-    });
-    archivedMonths = Array.from(map.values()).sort((a,b) => b.id.localeCompare(a.id));
-}
-
-function renderArchive() {
-    const list  = document.getElementById('archive-list');
-    const empty = document.getElementById('archive-empty-state');
-    if (!list) return;
-
-    list.innerHTML = '';
-
-    if (archivedMonths.length === 0) {
-        empty.classList.remove('hidden');
-        return;
-    }
-    empty.classList.add('hidden');
-
-    archivedMonths.forEach(archive => {
-        const s = archive.summary || {};
-        const count = (archive.expenses || []).filter(e => !e.deleted).length;
-        list.innerHTML += `
-        <div class="bg-surface-container-lowest rounded-2xl border border-outline-variant overflow-hidden">
-            <button onclick="toggleArchiveDetail('${archive.id}')" class="w-full p-4 flex items-center justify-between text-left active:bg-surface-container transition-colors">
-                <div class="text-left">
-                    <p class="font-bold text-on-surface">${archive.name}</p>
-                    <p class="text-xs text-on-surface-variant">${formatDate(archive.archivedAt?.substring(0,10))} • ${count} gastos</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <p class="font-headline-md text-headline-md text-primary">${formatCurrency(s.total || 0)}</p>
-                    <span class="material-symbols-outlined text-on-surface-variant archive-chevron-${archive.id}" style="transition:transform .2s">expand_more</span>
-                </div>
-            </button>
-
-            <div id="archive-detail-${archive.id}" class="hidden border-t border-outline-variant">
-                <div class="grid grid-cols-3 gap-2 px-4 py-3 bg-surface-container">
-                    <div class="text-center">
-                        <p class="text-[10px] text-on-surface-variant uppercase font-bold">${authData?.p1Name || 'U1'}</p>
-                        <p class="font-label-md font-bold text-sm">${formatCurrency(s.p1Total || 0)}</p>
-                    </div>
-                    <div class="text-center">
-                        <p class="text-[10px] text-on-surface-variant uppercase font-bold">${authData?.p2Name || 'U2'}</p>
-                        <p class="font-label-md font-bold text-sm">${formatCurrency(s.p2Total || 0)}</p>
-                    </div>
-                    <div class="text-center">
-                        <p class="text-[10px] text-on-surface-variant uppercase font-bold">50/50</p>
-                        <p class="font-label-md font-bold text-sm">${formatCurrency(s.sharedTotal || 0)}</p>
-                    </div>
-                </div>
-                <div class="divide-y divide-outline-variant/30 px-4 pb-4 pt-2">
-                    ${renderArchiveExpenses(archive.expenses || [])}
-                </div>
+                <span class="font-headline-md text-headline-md ml-4">${fmt(g.monto)}</span>
+            </div>
+            <div class="flex gap-2 mt-3">
+                <button onclick="marcarPagado('${g.id}')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">check_circle</span>Marcar pagado
+                </button>
+                <button onclick="abrirEditar('${g.id}')" class="w-9 h-9 border border-primary text-primary rounded-lg flex items-center justify-center active:scale-95">
+                    <span class="material-symbols-outlined text-sm">edit</span>
+                </button>
+                <button onclick="eliminar('${g.id}')" class="w-9 h-9 border border-error text-error rounded-lg flex items-center justify-center active:scale-95">
+                    <span class="material-symbols-outlined text-sm">delete</span>
+                </button>
             </div>
         </div>`;
     });
 }
 
-function renderArchiveExpenses(exps) {
-    const visible = exps.filter(e => !e.deleted).sort((a,b) => new Date(b.date) - new Date(a.date));
-    if (!visible.length) return '<p class="text-xs text-on-surface-variant text-center py-2">Sin detalles.</p>';
-    return visible.map(exp => `
-    <div class="flex items-center justify-between py-2">
-        <div>
-            <p class="font-label-md text-sm text-on-surface">${exp.concept}</p>
-            <p class="text-[10px] text-on-surface-variant uppercase">${formatDate(exp.date)} • ${resolvePayerName(exp.paidBy)}</p>
-        </div>
-        <span class="font-bold text-sm text-on-surface ml-4">${formatCurrency(exp.amount)}</span>
-    </div>`).join('');
+function renderHistorial() {
+    const lista = document.getElementById('lista-gastos');
+    const vacio = document.getElementById('vacio-gastos');
+    const items = gastos.filter(g => g.tipo === 'gasto').sort(porFecha);
+    lista.innerHTML = '';
+
+    if (!items.length) { vacio.classList.remove('hidden'); return; }
+    vacio.classList.add('hidden');
+
+    items.forEach(g => {
+        const badge = g.pagador === 'compartido'
+            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
+            : '';
+        lista.innerHTML += `
+        <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-primary text-[20px]">paid</span>
+                </div>
+                <div class="min-w-0">
+                    <p class="font-label-md truncate">${esc(g.concepto)}</p>
+                    <p class="text-[10px] text-on-surface-variant uppercase font-bold">${fmtFecha(g.fecha)} · ${nomPagador(g.pagador)}</p>
+                    ${badge}
+                </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+                <span class="font-bold">${fmt(g.monto)}</span>
+                <button onclick="abrirEditar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-primary">
+                    <span class="material-symbols-outlined text-[18px]">edit</span>
+                </button>
+                <button onclick="eliminar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-error">
+                    <span class="material-symbols-outlined text-[18px]">delete</span>
+                </button>
+            </div>
+        </div>`;
+    });
 }
 
-window.toggleArchiveDetail = function (id) {
-    const detail  = document.getElementById(`archive-detail-${id}`);
-    const chevron = document.querySelector(`.archive-chevron-${id}`);
-    if (!detail) return;
-    const opening = detail.classList.contains('hidden');
-    detail.classList.toggle('hidden');
-    if (chevron) chevron.style.transform = opening ? 'rotate(180deg)' : '';
-};
+// ─── CAJÓN DE AJUSTES ─────────────────────────────────────────────────────────
 
-// ─── 17. DRAWER ──────────────────────────────────────────────────────────────
+window.toggleCajon = function () {
+    const cajon    = document.getElementById('cajon');
+    const contenido = document.getElementById('cajon-contenido');
+    const fondo    = document.getElementById('cajon-fondo');
 
-window.toggleDrawer = function () {
-    const drawer   = document.getElementById('side-drawer');
-    const content  = document.getElementById('drawer-content');
-    const backdrop = document.getElementById('drawer-backdrop');
-    if (drawer.classList.contains('hidden')) {
-        drawer.classList.remove('hidden');
-        drawer.classList.add('pointer-events-auto');
+    if (cajon.classList.contains('hidden')) {
+        cajon.classList.remove('hidden', 'pointer-events-none');
+        cajon.classList.add('pointer-events-auto');
         setTimeout(() => {
-            content.classList.remove('-translate-x-full');
-            backdrop.classList.remove('opacity-0');
-            backdrop.classList.add('opacity-100');
+            contenido.classList.remove('-translate-x-full');
+            fondo.classList.remove('opacity-0');
+            fondo.classList.add('opacity-100');
         }, 10);
     } else {
-        content.classList.add('-translate-x-full');
-        backdrop.classList.remove('opacity-100');
-        backdrop.classList.add('opacity-0');
+        contenido.classList.add('-translate-x-full');
+        fondo.classList.remove('opacity-100');
+        fondo.classList.add('opacity-0');
         setTimeout(() => {
-            drawer.classList.add('hidden');
-            drawer.classList.remove('pointer-events-auto');
+            cajon.classList.add('hidden', 'pointer-events-none');
+            cajon.classList.remove('pointer-events-auto');
         }, 300);
     }
 };
 
-// ─── 18. AUTO-SYNC ───────────────────────────────────────────────────────────
+// ─── GESTIÓN DE DATOS ─────────────────────────────────────────────────────────
 
-function scheduleAutoSync() {
-    clearTimeout(autoSyncTimer);
-    autoSyncTimer = setTimeout(async () => {
-        if (isSyncing) { scheduleAutoSync(); return; }
-        try {
-            setSyncUiState(true);
-            await pushToSheet();
-            const ts = new Date().toISOString();
-            localStorage.setItem('lastSync', ts);
-            updateLastSyncLabel();
-        } catch (err) {
-            console.warn('[SpendSync] Auto-sync failed:', err);
-        } finally { setSyncUiState(false); }
-    }, 3000);
-}
-
-async function silentPull() {
-    try {
-        const remote = await pullFromSheet();
-        if (remote.authData) {
-            authData = remote.authData;
-            localStorage.setItem('authData', JSON.stringify(authData));
-        }
-        if (remote.archivedMonths?.length) {
-            mergeArchivedMonths(remote.archivedMonths);
-            persistArchive();
-            renderArchive();
-        }
-        mergeExpenses(remote.expenses);
-        normalizeExpenses();
-        persistExpenses();
-        renderExpenses();
-        updateSummary();
-        const ts = new Date().toISOString();
-        localStorage.setItem('lastSync', ts);
-        updateLastSyncLabel();
-    } catch { /* Offline — silent */ }
-}
-
-// ─── 19. MANUAL SYNC ─────────────────────────────────────────────────────────
-
-window.manualSync = async function () {
-    if (isSyncing) return;
-    setSyncUiState(true);
-    try {
-        await pushToSheet();
-        const remote = await pullFromSheet();
-        if (remote.authData) {
-            authData = remote.authData;
-            localStorage.setItem('authData', JSON.stringify(authData));
-        }
-        if (remote.archivedMonths?.length) {
-            mergeArchivedMonths(remote.archivedMonths);
-            persistArchive();
-            renderArchive();
-        }
-        mergeExpenses(remote.expenses);
-        normalizeExpenses();
-        persistExpenses();
-        renderExpenses();
-        updateSummary();
-        const ts = new Date().toISOString();
-        localStorage.setItem('lastSync', ts);
-        updateLastSyncLabel();
-        showDrawerSyncStatus(`Sincronizado a las ${new Date(ts).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit'})}.`, false);
-    } catch (err) {
-        showDrawerSyncStatus('Error: ' + err.message, true);
-        console.error('[SpendSync Sync]', err);
-    } finally { setSyncUiState(false); }
-};
-
-// ─── 20. TRANSPORT ───────────────────────────────────────────────────────────
-
-async function pushToSheet() {
-    const res = await fetch(GAS_URL, {
+window.borrarGastos = function () {
+    if (!confirm('¿Borrar todos los gastos? La configuración de usuarios se mantiene.')) return;
+    toggleCajon();
+    gastos = [];
+    guardarLocal();
+    renderTodo();
+    // Push inmediato para limpiar el Sheet también
+    fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'push', expenses, authData, archivedMonths })
-    });
-    if (!res.ok) throw new Error(`Push HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Push rechazado');
+        body: JSON.stringify({ action: 'push', gastos: [], config })
+    }).catch(e => console.warn('[SpendSync]', e));
+};
+
+window.resetearApp = function () {
+    if (!confirm('⚠️ ¿Resetear la aplicación?\n\nSe borrarán usuarios y gastos del Sheet y del dispositivo. Necesitarás configurar de nuevo.')) return;
+    // Limpiar Sheet en segundo plano
+    fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'reset' })
+    }).catch(() => {});
+    // Limpiar local
+    config  = null;
+    gastos  = [];
+    usuario = null;
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem('ss_reset', '1');
+    mostrarVista('setup-view');
+    document.getElementById('setup-form').reset();
+};
+
+// ─── SINCRONIZACIÓN ───────────────────────────────────────────────────────────
+
+function schedulePush() {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(pushASheet, 2000);
 }
 
-async function pullFromSheet() {
-    const res = await fetch(`${GAS_URL}?action=pull`, { method: 'GET' });
-    if (!res.ok) throw new Error(`Pull HTTP ${res.status}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'Pull rechazado');
-    return {
-        expenses:       Array.isArray(json.expenses) ? json.expenses : [],
-        authData:       json.authData || null,
-        archivedMonths: Array.isArray(json.archivedMonths) ? json.archivedMonths : []
-    };
-}
-
-function mergeExpenses(remote) {
-    const map = new Map(expenses.map(e => [e.id, e]));
-    remote.forEach(r => {
-        const sid = String(r.id);
-        // Never restore an ID the user explicitly deleted on this device
-        if (deletedIds.has(sid)) return;
-        // Also skip items the Sheet marks as deleted (old GAS didn't have this column,
-        // new GAS writes 'TRUE'/'FALSE'; normalise here before deciding)
-        const remoteDeleted = r.deleted === true || String(r.deleted).toUpperCase() === 'TRUE';
-        if (remoteDeleted) return;
-        const local = map.get(sid);
-        if (!local) { map.set(sid, r); return; }
-        const lt = new Date(local.updatedAt || 0).getTime();
-        const rt = new Date(r.updatedAt    || 0).getTime();
-        if (rt > lt) map.set(sid, r);
-    });
-    expenses = Array.from(map.values());
-}
-
-// ─── 21. SYNC UI ─────────────────────────────────────────────────────────────
-
-function setSyncUiState(loading) {
-    isSyncing = loading;
-    const btn  = document.getElementById('sync-btn');
-    const icon = btn.querySelector('.sync-icon');
-    const txt  = document.getElementById('sync-status-text');
-    const bar  = document.getElementById('sync-status-bar');
-    if (loading) {
-        btn.classList.add('syncing','opacity-70');
-        icon.textContent = 'sync'; txt.textContent = 'Syncing…';
-        bar.classList.remove('hidden');
-    } else {
-        btn.classList.remove('syncing','opacity-70');
-        icon.textContent = 'cloud_done'; txt.textContent = 'Sync';
-        bar.classList.add('hidden');
-        setTimeout(() => { icon.textContent = 'cloud_sync'; }, 2000);
+async function pushASheet() {
+    try {
+        setSyncUI(true);
+        await fetch(GAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ action: 'push', gastos, config })
+        });
+        localStorage.setItem('ss_lastSync', new Date().toISOString());
+        actualizarLabelSync();
+    } catch (e) {
+        console.warn('[SpendSync] Push falló:', e);
+    } finally {
+        setSyncUI(false);
     }
 }
 
-function showDrawerSyncStatus(msg, isError) {
-    const el = document.getElementById('drawer-sync-status');
-    el.textContent = msg;
-    el.classList.remove('hidden','text-error','text-secondary');
-    el.classList.add(isError ? 'text-error' : 'text-secondary');
-    setTimeout(() => el.classList.add('hidden'), 4000);
+async function pullDeSheet() {
+    const res  = await fetch(GAS_URL);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Error del servidor');
+    return json;
 }
 
-// ─── 22. SERVICE WORKER ──────────────────────────────────────────────────────
+async function pullSilencioso() {
+    try {
+        const r = await pullDeSheet();
+        if (!r.config) return;
+        config = r.config;
+        gastos = normalizarGastos(r.gastos || []);
+        guardarLocal();
+        if (usuario) renderTodo(); // solo actualizar si ya está en la app
+        localStorage.setItem('ss_lastSync', new Date().toISOString());
+        actualizarLabelSync();
+    } catch { /* sin conexión */ }
+}
+
+window.syncManual = async function () {
+    if (sincroni) return;
+    setSyncUI(true);
+    try {
+        // Primero subir los cambios locales, luego bajar el Sheet
+        await fetch(GAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ action: 'push', gastos, config })
+        });
+        const r = await pullDeSheet();
+        if (r.config) {
+            config = r.config;
+            gastos = normalizarGastos(r.gastos || []);
+            guardarLocal();
+            renderTodo();
+        }
+        localStorage.setItem('ss_lastSync', new Date().toISOString());
+        actualizarLabelSync();
+    } catch (e) {
+        console.warn('[SpendSync] Sync falló:', e);
+    } finally {
+        setSyncUI(false);
+    }
+};
+
+function setSyncUI(activo) {
+    sincroni = activo;
+    const btn  = document.getElementById('sync-btn');
+    const icono = btn.querySelector('.sync-icon');
+    if (activo) {
+        btn.classList.add('opacity-70');
+        icono.classList.add('spinning');
+    } else {
+        btn.classList.remove('opacity-70');
+        icono.classList.remove('spinning');
+    }
+}
+
+function actualizarLabelSync() {
+    const el = document.getElementById('last-sync-label');
+    if (!el) return;
+    const ts = localStorage.getItem('ss_lastSync');
+    el.textContent = ts
+        ? 'Última sync: ' + new Date(ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+        : 'Auto-sync activo';
+}
+
+// ─── UTILIDADES ───────────────────────────────────────────────────────────────
+
+function guardarLocal() {
+    localStorage.setItem('ss_config', JSON.stringify(config));
+    localStorage.setItem('ss_gastos',  JSON.stringify(gastos));
+}
+
+function normalizarGastos(arr) {
+    return arr
+        .map(g => ({
+            id:       String(g.id || ''),
+            fecha:    extraerFecha(g.fecha),
+            concepto: String(g.concepto || ''),
+            monto:    Number(g.monto) || 0,
+            pagador:  ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
+            tipo:     ['gasto','pendiente'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto'
+        }))
+        .filter(g => g.id); // descartar filas sin ID
+}
+
+function extraerFecha(v) {
+    const m = String(v || '').match(/(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : new Date().toISOString().substring(0, 10);
+}
+
+function fmt(n) {
+    return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', minimumFractionDigits: 0 }).format(n);
+}
+
+function fmtFecha(s) {
+    const m = String(s).match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return s;
+    return new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00`)
+        .toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function nomPagador(p) {
+    if (!config) return p;
+    if (p === '1') return config.nombre1;
+    if (p === '2') return config.nombre2;
+    return 'Compartido';
+}
+
+function porFecha(a, b) { return b.fecha.localeCompare(a.fecha); }
+
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function v(id) { return document.getElementById(id).value; }
+
+// ─── SERVICE WORKER ───────────────────────────────────────────────────────────
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(err => console.warn('[SpendSync SW]', err));
-    });
-    navigator.serviceWorker.addEventListener('message', e => {
-        if (e.data?.type === 'SW_TRIGGER_SYNC') manualSync();
+        navigator.serviceWorker.register('sw.js').catch(e => console.warn('[SW]', e));
     });
 }
 
-// ─── INIT ────────────────────────────────────────────────────────────────────
+// ─── INICIO ───────────────────────────────────────────────────────────────────
 
 initApp();
