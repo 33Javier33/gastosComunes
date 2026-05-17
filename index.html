@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8"/>
     <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
-    <title>SpendSync – Gastos en Pareja</title>
+    <title>GastosComunes – Gastos en Pareja</title>
 
     <link rel="manifest" href="manifest.json"/>
     <meta name="theme-color" content="#3525cd"/>
     <meta name="apple-mobile-web-app-capable" content="yes"/>
     <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
-    <meta name="apple-mobile-web-app-title" content="SpendSync"/>
+    <meta name="apple-mobile-web-app-title" content="GastosComunes"/>
     <link rel="apple-touch-icon" href="icon.svg"/>
 
     <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
@@ -117,7 +117,7 @@
             <div class="w-20 h-20 bg-primary-container rounded-full flex items-center justify-center mx-auto mb-4">
                 <span class="material-symbols-outlined text-[32px] text-on-primary-container">lock_open</span>
             </div>
-            <h1 class="text-headline-sm">Bienvenido a SpendSync</h1>
+            <h1 class="text-headline-sm">Bienvenido a GastosComunes</h1>
             <p class="text-on-surface-variant mt-1">Selecciona tu usuario</p>
             <p id="login-alert" class="alerta hidden text-label-md mt-2"></p>
         </div>
@@ -177,13 +177,13 @@
     <header class="fixed top-0 w-full z-50 bg-surface border-b border-outline-variant flex items-center justify-between px-5 h-14 shadow-sm">
         <div class="flex items-center gap-2">
             <span class="material-symbols-outlined text-primary">account_balance_wallet</span>
-            <span class="font-bold text-primary text-headline-md">SpendSync</span>
+            <span class="font-bold text-primary text-headline-md">GastosComunes</span>
         </div>
         <div class="flex items-center gap-3">
             <button id="sync-btn" onclick="syncManual()" title="Sincronizar"
                 class="flex items-center gap-1 text-xs font-bold text-primary bg-primary/10 px-3 py-1.5 rounded-full active:scale-95">
                 <span class="material-symbols-outlined text-sm sync-icon">cloud_sync</span>
-                <span>Sync</span>
+                <span>Sincronizar</span>
             </button>
             <span id="header-nombre" class="text-label-md text-on-surface-variant hidden sm:block"></span>
             <div id="header-inicial" class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-xs"></div>
@@ -325,9 +325,9 @@
 
         <!-- Cabecera -->
         <div class="flex items-center gap-3 pb-4 border-b border-outline-variant">
-            <div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-lg">SS</div>
+            <div class="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-lg">GC</div>
             <div>
-                <p class="font-bold text-on-surface">SpendSync</p>
+                <p class="font-bold text-on-surface">GastosComunes</p>
                 <p class="text-label-sm text-on-surface-variant">Gastos en pareja</p>
             </div>
         </div>
@@ -339,7 +339,7 @@
                     <span class="material-symbols-outlined text-primary">cloud_sync</span>
                     <span class="text-label-md font-bold">Sincronización</span>
                 </div>
-                <p id="last-sync-label" class="text-xs text-on-surface-variant">Auto-sync activo</p>
+                <p id="last-sync-label" class="text-xs text-on-surface-variant">Sincronización activa</p>
                 <button onclick="syncManual()" class="w-full h-9 bg-primary text-on-primary text-xs font-bold rounded-xl active:scale-95 flex items-center justify-center gap-2">
                     <span class="material-symbols-outlined text-sm">sync</span>
                     Sincronizar ahora

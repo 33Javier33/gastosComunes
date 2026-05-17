@@ -144,7 +144,7 @@ document.getElementById('setup-form').addEventListener('submit', async function 
         setTimeout(() => { sessionStorage.setItem('ss_usuario', '1'); usuario = '1'; lanzarApp(); }, 1200);
     } catch (err) {
         mostrarAlerta('setup-alert', 'Guardado local. Sin conexión al Sheet: ' + err.message);
-        btn.textContent = 'Continuar sin sync';
+        btn.textContent = 'Continuar sin conexión';
         btn.disabled = false;
         btn.onclick = () => { sessionStorage.setItem('ss_usuario', '1'); usuario = '1'; lanzarApp(); };
     }
@@ -595,7 +595,7 @@ window.borrarGastos = function () {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify({ action: 'push', gastos: [], config })
-    }).catch(e => console.warn('[SpendSync]', e));
+    }).catch(e => console.warn('[GastosComunes]', e));
 };
 
 window.resetearApp = function () {
@@ -636,7 +636,7 @@ async function pushASheet() {
         localStorage.setItem('ss_lastSync', new Date().toISOString());
         actualizarLabelSync();
     } catch (e) {
-        console.warn('[SpendSync] Push falló:', e);
+        console.warn('[GastosComunes] Push falló:', e);
     } finally {
         setSyncUI(false);
     }
@@ -681,7 +681,7 @@ window.syncManual = async function () {
         localStorage.setItem('ss_lastSync', new Date().toISOString());
         actualizarLabelSync();
     } catch (e) {
-        console.warn('[SpendSync] Sync falló:', e);
+        console.warn('[GastosComunes] Sync falló:', e);
     } finally {
         setSyncUI(false);
     }
@@ -705,8 +705,8 @@ function actualizarLabelSync() {
     if (!el) return;
     const ts = localStorage.getItem('ss_lastSync');
     el.textContent = ts
-        ? 'Última sync: ' + new Date(ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
-        : 'Auto-sync activo';
+        ? 'Última sincronización: ' + new Date(ts).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+        : 'Sincronización activa';
 }
 
 // ─── UTILIDADES ───────────────────────────────────────────────────────────────

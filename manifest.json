@@ -1,7 +1,7 @@
 {
-  "name": "SpendSync - Gastos Compartidos",
-  "short_name": "SpendSync",
-  "description": "Registra y sincroniza gastos compartidos entre dos personas.",
+  "name": "GastosComunes - Gastos en Pareja",
+  "short_name": "GastosComunes",
+  "description": "Registra y comparte gastos en pareja de forma simple.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
