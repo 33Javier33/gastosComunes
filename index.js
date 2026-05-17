@@ -72,6 +72,13 @@ function showAlert(elementId, message, isInfo = false) {
 // ─── 4. BOOT ─────────────────────────────────────────────────────────────────
 
 async function initApp() {
+    // After a full reset, skip the boot pull so Sheet data doesn't restore
+    if (localStorage.getItem('skipBootPull')) {
+        localStorage.removeItem('skipBootPull');
+        showView('setup-view');
+        return;
+    }
+
     normalizeExpenses();
 
     if (authData) {
@@ -313,47 +320,60 @@ window.deleteExpense = function (id) {
     }
 };
 
-// Clears ALL active expenses from local storage AND from Google Sheets immediately
+// Clears ALL active expenses locally and from Google Sheets
 window.clearAllExpenses = async function () {
-    if (!confirm('¿Borrar TODOS los gastos? Esto también limpiará las hojas del Sheet.')) return;
+    if (!confirm('¿Borrar TODOS los gastos activos? También se vaciarán las hojas del Sheet.')) return;
+
+    // Close drawer first
     toggleDrawer();
 
+    // Clear locally right away so the user sees the effect immediately
     expenses = [];
     persistExpenses();
     renderExpenses();
     updateSummary();
 
-    try {
-        setSyncUiState(true);
-        await pushToSheet();
-        setSyncUiState(false);
-        showDrawerSyncStatus('Gastos borrados del Sheet.', false);
-    } catch (err) {
-        setSyncUiState(false);
-        console.warn('[SpendSync] Clear sync failed:', err);
-    }
+    // Fire-and-forget push to Sheet (best effort, no await so a GAS error won't block local clear)
+    fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'push', expenses: [], authData, archivedMonths })
+    }).catch(err => console.warn('[SpendSync] Clear sheet failed (local cleared OK):', err));
 };
 
-// Resets the entire app locally AND in Google Sheets
-window.resetApp = async function () {
-    if (!confirm('⚠️ ¿Resetear la aplicación completa?\n\nEsto borrará usuarios y gastos de ESTE dispositivo Y del Sheet. El otro dispositivo también perderá acceso.')) return;
+// Full reset: wipes all data locally AND from Google Sheets, then goes to setup screen
+window.resetApp = function () {
+    if (!confirm('⚠️ ¿Resetear la aplicación completa?\n\nSe borrarán usuarios y gastos de ESTE dispositivo y del Sheet. Necesitarás configurar usuarios de nuevo.')) return;
 
-    try {
-        // Push empty state before clearing localStorage (so we still have authData for the request)
-        expenses = [];
-        await pushToSheet();
-        await fetch(GAS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ action: 'resetAuth' })
-        });
-    } catch (err) {
-        console.warn('[SpendSync] Reset push failed:', err);
-    }
+    // Fire-and-forget: push empty expenses to Sheet
+    fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'push', expenses: [], authData, archivedMonths: [] })
+    }).catch(() => {});
 
+    // Fire-and-forget: clear auth data from Sheet
+    fetch(GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'resetAuth' })
+    }).catch(() => {});
+
+    // Reset all in-memory state
+    authData = null;
+    expenses = [];
+    archivedMonths = [];
+    editExpenseId = null;
+
+    // Clear storage and mark so that any subsequent reload skips the boot pull
     localStorage.clear();
     sessionStorage.clear();
-    location.reload();
+    localStorage.setItem('skipBootPull', '1');
+
+    // Go directly to setup view — no reload, so Sheet pull cannot restore old data
+    document.getElementById('setup-form').reset();
+    document.getElementById('setup-alert').classList.add('hidden');
+    showView('setup-view');
 };
 
 function persistExpenses() {
