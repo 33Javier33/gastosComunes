@@ -60,6 +60,15 @@
 </head>
 <body class="bg-surface text-on-surface font-sans min-h-screen">
 
+<!-- ── BANNER SIN CONEXIÓN ───────────────────────────────────────────────────── -->
+<div id="offline-banner" class="hidden fixed top-14 left-0 w-full z-40 bg-tertiary text-on-tertiary text-xs font-bold py-2 flex items-center justify-center gap-2">
+    <span class="material-symbols-outlined text-sm">wifi_off</span>
+    Sin conexión – los cambios se guardan y se enviarán al reconectar
+</div>
+
+<!-- ── TOAST ─────────────────────────────────────────────────────────────────── -->
+<div id="toast" class="fixed bottom-24 left-1/2 -translate-x-1/2 z-[250] bg-on-surface text-surface text-xs font-bold px-5 py-2.5 rounded-full shadow-xl opacity-0 translate-y-2 transition-all duration-300 pointer-events-none whitespace-nowrap"></div>
+
 <!-- ── BOOT LOADER ──────────────────────────────────────────────────────────── -->
 <div id="boot-loader" class="hidden fixed inset-0 z-[200] bg-surface flex flex-col items-center justify-center gap-4">
     <span id="boot-icon" class="material-symbols-outlined text-[56px] text-primary spinning">cloud_sync</span>
@@ -234,6 +243,17 @@
             </div>
         </div>
 
+        <!-- Por confirmar (propuestas del otro usuario) -->
+        <section id="seccion-propuestos" class="hidden space-y-3">
+            <h3 class="text-headline-md flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary">mark_unread_chat_alt</span>
+                Por confirmar
+                <span id="badge-propuestos" class="px-2 py-0.5 bg-primary text-on-primary text-xs font-bold rounded-full"></span>
+            </h3>
+            <p class="text-xs text-on-surface-variant -mt-1">El otro usuario registró estos movimientos. Confirmá para que pasen al historial.</p>
+            <div id="lista-propuestos" class="space-y-3"></div>
+        </section>
+
         <!-- Formulario nuevo gasto -->
         <section class="space-y-3">
             <h3 class="text-headline-md">Nuevo registro</h3>
@@ -266,7 +286,7 @@
                             class="h-10 text-xs font-bold rounded-xl border border-outline-variant text-on-surface-variant">50/50</button>
                     </div>
                 </div>
-                <div class="flex items-center gap-3">
+                <div id="pendiente-wrap" class="flex items-center gap-3">
                     <label class="relative inline-flex items-center cursor-pointer">
                         <input id="es-pendiente" type="checkbox" class="sr-only peer"/>
                         <div class="w-11 h-6 bg-surface-variant rounded-full peer peer-checked:bg-primary
@@ -276,6 +296,10 @@
                     </label>
                     <span class="text-label-md text-on-surface-variant">Marcar como pendiente</span>
                     <button type="button" onclick="mostrarAyuda('pendiente')" class="w-5 h-5 rounded-full border border-outline-variant text-[10px] font-bold flex items-center justify-center hover:border-primary hover:text-primary active:scale-95">?</button>
+                </div>
+                <div id="propuesta-hint" class="hidden items-center gap-2 p-3 bg-primary/10 rounded-xl">
+                    <span class="material-symbols-outlined text-primary text-sm shrink-0">schedule_send</span>
+                    <span id="propuesta-hint-texto" class="text-xs text-primary font-bold">El otro usuario recibirá este movimiento para confirmar.</span>
                 </div>
                 <button type="submit" class="w-full h-12 bg-primary text-on-primary font-bold rounded-xl active:scale-[0.98] transition-transform">
                     Registrar

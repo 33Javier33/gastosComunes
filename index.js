@@ -10,9 +10,11 @@ let usuario = null;   // '1' o '2'
 let pagSel  = '1';    // payer seleccionado en formulario
 let editId  = null;   // id del gasto en edición
 let editPag = '1';    // payer en modal de edición
-let syncTimer  = null;
-let sincroni   = false;
-let pullListo  = false; // impide push antes de que el primer pull complete
+let syncTimer     = null;
+let sincroni      = false;
+let pullListo     = false; // impide push antes de que el primer pull complete
+let sinConexion   = !navigator.onLine;
+let pendientePush = localStorage.getItem('ss_pendiente_push') === 'true';
 
 // ─── AUTO-LOGOUT ──────────────────────────────────────────────────────────────
 
@@ -232,6 +234,16 @@ function seleccionarPagador(p) {
         btn.classList.toggle('border-outline-variant', !sel);
         btn.classList.toggle('text-on-surface-variant', !sel);
     });
+    const esPropuesta = !!usuario && pagSel !== usuario;
+    const wrap  = document.getElementById('pendiente-wrap');
+    const hint  = document.getElementById('propuesta-hint');
+    const texto = document.getElementById('propuesta-hint-texto');
+    if (wrap) wrap.classList.toggle('hidden', esPropuesta);
+    if (hint) hint.classList.toggle('hidden', !esPropuesta);
+    if (texto && config && esPropuesta) {
+        const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
+        texto.textContent = `${otroNombre} recibirá este movimiento para confirmar.`;
+    }
 }
 
 document.getElementById('gasto-form').addEventListener('submit', function (e) {
@@ -239,13 +251,16 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
     const monto = +v('monto').replace(/\D/g, '');
     if (!monto) return;
 
+    const esPropuesta = !!usuario && pagSel !== usuario;
     gastos.push({
         id:       Date.now().toString(),
         fecha:    v('fecha'),
         concepto: v('concepto').trim(),
         monto,
         pagador:  pagSel,
-        tipo:     document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto'
+        tipo:     esPropuesta
+                    ? `propuesto_${usuario}`
+                    : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto')
     });
 
     guardarLocal();
@@ -256,6 +271,10 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
     document.getElementById('concepto').focus();
     seleccionarPagador('1');
     renderTodo();
+    if (esPropuesta) {
+        const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
+        mostrarToast(`Enviado a ${otroNombre} para confirmar`);
+    }
 });
 
 // ─── ACCIONES SOBRE GASTOS ────────────────────────────────────────────────────
@@ -559,6 +578,7 @@ document.getElementById('edit-form').addEventListener('submit', function (e) {
 
 function renderTodo() {
     renderResumen();
+    renderPropuestos();
     renderPendientes();
     renderHistorial();
 }
@@ -566,6 +586,7 @@ function renderTodo() {
 function renderResumen() {
     let t1 = 0, t2 = 0, tc = 0, p1 = 0, p2 = 0;
     gastos.forEach(g => {
+        if (g.tipo === 'propuesto_1' || g.tipo === 'propuesto_2') return;
         const m = g.monto;
         if (g.tipo === 'pendiente') {
             if (g.pagador === '1') p1 += m;
@@ -753,9 +774,13 @@ async function pushASheet() {
             headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({ action: 'push', gastos, config })
         });
+        pendientePush = false;
+        localStorage.removeItem('ss_pendiente_push');
         localStorage.setItem('ss_lastSync', new Date().toISOString());
         actualizarLabelSync();
     } catch (e) {
+        pendientePush = true;
+        localStorage.setItem('ss_pendiente_push', 'true');
         console.warn('[GastosComunes] Push falló:', e);
     } finally {
         setSyncUI(false);
@@ -844,7 +869,7 @@ function normalizarGastos(arr) {
             concepto: String(g.concepto || ''),
             monto:    Number(g.monto) || 0,
             pagador:  ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
-            tipo:     ['gasto','pendiente'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto'
+            tipo:     ['gasto','pendiente','propuesto_1','propuesto_2'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto'
         }))
         .filter(g => g.id); // descartar filas sin ID
 }
@@ -879,6 +904,103 @@ function esc(s) {
 }
 
 function v(id) { return document.getElementById(id).value; }
+
+// ─── PROPUESTAS (movimientos por confirmar) ───────────────────────────────────
+
+function renderPropuestos() {
+    const seccion = document.getElementById('seccion-propuestos');
+    if (!seccion || !usuario) { if (seccion) seccion.classList.add('hidden'); return; }
+
+    const otroUsr = usuario === '1' ? '2' : '1';
+    const items   = gastos.filter(g => g.tipo === `propuesto_${otroUsr}`).sort(porFecha);
+    seccion.classList.toggle('hidden', items.length === 0);
+
+    const badge = document.getElementById('badge-propuestos');
+    if (badge) badge.textContent = items.length || '';
+
+    const lista = document.getElementById('lista-propuestos');
+    lista.innerHTML = '';
+    items.forEach(g => {
+        const otroNombre = esc(config['nombre' + otroUsr]);
+        lista.innerHTML += `
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-primary shadow-sm">
+            <div class="flex justify-between items-start mb-1">
+                <div class="min-w-0 mr-3">
+                    <p class="font-bold text-on-surface truncate">${esc(g.concepto)}</p>
+                    <p class="text-xs text-on-surface-variant">${fmtFecha(g.fecha)} · ${nomPagador(g.pagador)}</p>
+                    <p class="text-xs text-primary font-bold mt-1">Propuesto por ${otroNombre}</p>
+                </div>
+                <span class="font-bold text-headline-md shrink-0">${fmt(g.monto)}</span>
+            </div>
+            <div class="flex gap-2 mt-3">
+                <button onclick="confirmarPropuesto('${g.id}','gasto')"
+                    class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">check_circle</span>Gasto
+                </button>
+                <button onclick="confirmarPropuesto('${g.id}','pendiente')"
+                    class="flex-1 h-9 border-2 border-tertiary text-tertiary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">schedule</span>Pendiente
+                </button>
+                <button onclick="rechazarPropuesto('${g.id}')"
+                    class="w-9 h-9 border border-error text-error rounded-lg flex items-center justify-center active:scale-95 shrink-0">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>
+            </div>
+        </div>`;
+    });
+}
+
+window.confirmarPropuesto = function (id, tipo) {
+    const g = gastos.find(x => x.id === id);
+    if (!g) return;
+    g.tipo = tipo;
+    guardarLocal();
+    schedulePush();
+    renderTodo();
+    mostrarToast(tipo === 'gasto' ? 'Confirmado como gasto' : 'Confirmado como pendiente');
+};
+
+window.rechazarPropuesto = function (id) {
+    if (!confirm('¿Rechazar este movimiento?')) return;
+    gastos = gastos.filter(x => x.id !== id);
+    guardarLocal();
+    schedulePush();
+    renderTodo();
+};
+
+// ─── OFFLINE / RECONEXIÓN ─────────────────────────────────────────────────────
+
+function actualizarBannerConexion() {
+    const banner = document.getElementById('offline-banner');
+    if (banner) banner.classList.toggle('hidden', !sinConexion);
+}
+
+window.addEventListener('offline', () => {
+    sinConexion = true;
+    actualizarBannerConexion();
+});
+
+window.addEventListener('online', async () => {
+    sinConexion = false;
+    actualizarBannerConexion();
+    if (pendientePush && pullListo) {
+        mostrarToast('Reconectado — enviando cambios…');
+        try { await pushASheet(); mostrarToast('Cambios enviados'); } catch {}
+    }
+});
+
+function mostrarToast(msg) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('opacity-0', 'translate-y-2');
+    el.classList.add('opacity-100', 'translate-y-0');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => {
+        el.classList.add('opacity-0', 'translate-y-2');
+        el.classList.remove('opacity-100', 'translate-y-0');
+    }, 2800);
+}
 
 // ─── SERVICE WORKER ───────────────────────────────────────────────────────────
 
