@@ -268,24 +268,26 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
 let pagoId  = null;
 let pagoUsr = '1';
 
-window.abrirPago = function (id) {
+window.abrirPago = function (id, quienPaga) {
     const g = gastos.find(x => x.id === id);
     if (!g) return;
     pagoId = id;
 
-    const es50 = g.pagador === 'compartido';
-    document.getElementById('pago-titulo').textContent = es50 ? 'Registrar pago (50/50)' : 'Registrar pago';
-    document.getElementById('pago-concepto').textContent = g.concepto;
+    const es50  = g.pagador === 'compartido';
+    const mitad = Math.round(g.monto / 2);
 
-    const quienEl = document.getElementById('pago-quien');
-    quienEl.classList.toggle('hidden', !es50);
+    document.getElementById('pago-titulo').textContent = es50
+        ? `Pago de ${quienPaga === '1' ? config.nombre1 : config.nombre2} (50/50)`
+        : 'Registrar pago';
+    document.getElementById('pago-concepto').textContent = g.concepto;
+    document.getElementById('pago-quien').classList.toggle('hidden', !es50);
 
     if (es50) {
         document.getElementById('pago-btn-u1').textContent = config.nombre1;
         document.getElementById('pago-btn-u2').textContent = config.nombre2;
-        seleccionarPagoUsr(usuario || '1');
-        document.getElementById('pago-hint').textContent = `Tu parte del 50/50: ${fmt(Math.round(g.monto / 2))} (total: ${fmt(g.monto)})`;
-        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(Math.round(g.monto / 2));
+        seleccionarPagoUsr(quienPaga || usuario || '1');
+        document.getElementById('pago-hint').textContent = `Mitad a pagar: ${fmt(mitad)} de ${fmt(g.monto)} total`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(mitad);
     } else {
         document.getElementById('pago-hint').textContent = `Total pendiente: ${fmt(g.monto)}`;
         document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(g.monto);
@@ -477,9 +479,25 @@ function renderPendientes() {
     vacio.classList.add('hidden');
 
     items.forEach(g => {
-        const badge = g.pagador === 'compartido'
-            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(g.monto / 2)}</span>`
+        const es50  = g.pagador === 'compartido';
+        const mitad = Math.round(g.monto / 2);
+        const badge = es50
+            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(mitad)}</span>`
             : '';
+
+        const botonesAccion = es50
+            ? `<button onclick="abrirPago('${g.id}','1')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95 px-2 min-w-0">
+                   <span class="material-symbols-outlined text-sm shrink-0">payments</span>
+                   <span class="truncate">${esc(config.nombre1)}</span>
+               </button>
+               <button onclick="abrirPago('${g.id}','2')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95 px-2 min-w-0">
+                   <span class="material-symbols-outlined text-sm shrink-0">payments</span>
+                   <span class="truncate">${esc(config.nombre2)}</span>
+               </button>`
+            : `<button onclick="abrirPago('${g.id}')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
+                   <span class="material-symbols-outlined text-sm">check_circle</span>Marcar pagado
+               </button>`;
+
         lista.innerHTML += `
         <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-sm">
             <div class="flex justify-between items-start">
@@ -491,13 +509,11 @@ function renderPendientes() {
                 <span class="font-headline-md text-headline-md ml-4">${fmt(g.monto)}</span>
             </div>
             <div class="flex gap-2 mt-3">
-                <button onclick="abrirPago('${g.id}')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">${g.pagador === 'compartido' ? 'payments' : 'check_circle'}</span>${g.pagador === 'compartido' ? 'Abonar / Pagar' : 'Marcar pagado'}
-                </button>
-                <button onclick="abrirEditar('${g.id}')" class="w-9 h-9 border border-primary text-primary rounded-lg flex items-center justify-center active:scale-95">
+                ${botonesAccion}
+                <button onclick="abrirEditar('${g.id}')" class="w-9 h-9 border border-primary text-primary rounded-lg flex items-center justify-center active:scale-95 shrink-0">
                     <span class="material-symbols-outlined text-sm">edit</span>
                 </button>
-                <button onclick="eliminar('${g.id}')" class="w-9 h-9 border border-error text-error rounded-lg flex items-center justify-center active:scale-95">
+                <button onclick="eliminar('${g.id}')" class="w-9 h-9 border border-error text-error rounded-lg flex items-center justify-center active:scale-95 shrink-0">
                     <span class="material-symbols-outlined text-sm">delete</span>
                 </button>
             </div>
