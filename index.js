@@ -260,6 +260,126 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
 
 // ─── ACCIONES SOBRE GASTOS ────────────────────────────────────────────────────
 
+// ─── AYUDA CONTEXTUAL ─────────────────────────────────────────────────────────
+
+const AYUDAS = {
+    pagador: {
+        titulo: '¿Quién paga?',
+        html: `<p class="text-on-surface-variant mb-3">Define quién corre con el gasto:</p>
+<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">person</span>
+    <div><p class="font-bold">Solo un usuario</p><p class="text-sm text-on-surface-variant mt-0.5">El gasto lo paga esa persona sola y suma únicamente a su total individual.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">group</span>
+    <div><p class="font-bold">50/50 (compartido)</p><p class="text-sm text-on-surface-variant mt-0.5">El gasto se divide en partes iguales. La mitad se suma al total de cada persona.</p></div>
+  </div>
+</div>`
+    },
+    pendiente: {
+        titulo: 'Gasto vs Pendiente',
+        html: `<p class="text-on-surface-variant mb-3">Hay dos tipos de movimiento:</p>
+<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-secondary shrink-0">paid</span>
+    <div><p class="font-bold">Gasto</p><p class="text-sm text-on-surface-variant mt-0.5">Ya fue pagado. Queda en el historial y suma al total general.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-tertiary shrink-0">pending_actions</span>
+    <div><p class="font-bold">Pendiente</p><p class="text-sm text-on-surface-variant mt-0.5">Todavía no se pagó. Aparece arriba hasta que se salde. Se puede abonar en partes o pagar todo de una vez.</p></div>
+  </div>
+</div>`
+    },
+    resumen: {
+        titulo: 'Resumen de gastos',
+        html: `<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">account_balance_wallet</span>
+    <div><p class="font-bold">Total gastado</p><p class="text-sm text-on-surface-variant mt-0.5">Suma de todos los gastos ya pagados. No incluye los pendientes.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">person</span>
+    <div><p class="font-bold">Total por persona</p><p class="text-sm text-on-surface-variant mt-0.5">Cuánto gastó cada uno. En gastos 50/50 la mitad se suma al total de cada persona.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-error shrink-0">pending_actions</span>
+    <div><p class="font-bold">Pendiente por persona</p><p class="text-sm text-on-surface-variant mt-0.5">Monto que esa persona todavía tiene que pagar. Desaparece cuando el pendiente se salda.</p></div>
+  </div>
+</div>`
+    },
+    pendientes: {
+        titulo: 'Cómo pagar pendientes',
+        html: `<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-secondary shrink-0">check_circle</span>
+    <div><p class="font-bold">Pendiente individual</p><p class="text-sm text-on-surface-variant mt-0.5">Tocá <em>Marcar pagado</em>. Podés escribir un monto menor para abonar solo una parte — el resto queda como nuevo pendiente.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-secondary shrink-0">payments</span>
+    <div><p class="font-bold">Pendiente 50/50</p><p class="text-sm text-on-surface-variant mt-0.5">Cada persona paga su parte de forma independiente tocando su propio botón. Si pagás menos de tu mitad, queda pendiente la diferencia para vos.</p></div>
+  </div>
+</div>`
+    },
+    sync: {
+        titulo: 'Sincronización',
+        html: `<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">cloud_sync</span>
+    <div><p class="font-bold">Automática</p><p class="text-sm text-on-surface-variant mt-0.5">Cada vez que registrás, editás o eliminás un movimiento, los datos se suben a Google Sheets en pocos segundos.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">sync</span>
+    <div><p class="font-bold">Botón Sincronizar</p><p class="text-sm text-on-surface-variant mt-0.5">Descarga los últimos datos del Sheet al instante. Usalo si el otro usuario acaba de hacer cambios desde otro dispositivo.</p></div>
+  </div>
+</div>`
+    },
+    datos: {
+        titulo: 'Gestión de datos',
+        html: `<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-error shrink-0">delete_sweep</span>
+    <div><p class="font-bold">Borrar todos los gastos</p><p class="text-sm text-on-surface-variant mt-0.5">Elimina todos los movimientos (gastos y pendientes) del historial. La configuración de usuarios se mantiene intacta.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-error shrink-0">restart_alt</span>
+    <div><p class="font-bold">Resetear aplicación</p><p class="text-sm text-on-surface-variant mt-0.5">Borra absolutamente todo: usuarios, gastos y configuración, tanto en el dispositivo como en Google Sheets. Tendrás que configurar la app de cero.</p></div>
+  </div>
+</div>`
+    },
+    setup_pin: {
+        titulo: 'Usuarios y acceso',
+        html: `<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">pin</span>
+    <div><p class="font-bold">PIN de 4 dígitos</p><p class="text-sm text-on-surface-variant mt-0.5">Protege el ingreso a la app. Cada usuario tiene el suyo propio y lo ingresa al abrir la app.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">badge</span>
+    <div><p class="font-bold">RUT</p><p class="text-sm text-on-surface-variant mt-0.5">Se usa solo para recuperar tu PIN si lo olvidás. No se comparte ni se envía a ningún servicio externo.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">devices</span>
+    <div><p class="font-bold">Multidispositivo</p><p class="text-sm text-on-surface-variant mt-0.5">La configuración se guarda en Google Sheets y está disponible en cualquier dispositivo. Solo se configura una vez.</p></div>
+  </div>
+</div>`
+    }
+};
+
+window.mostrarAyuda = function (clave) {
+    const h = AYUDAS[clave];
+    if (!h) return;
+    document.getElementById('ayuda-titulo').textContent = h.titulo;
+    document.getElementById('ayuda-contenido').innerHTML = h.html;
+    document.getElementById('ayuda-modal').classList.remove('hidden');
+};
+
+window.cerrarAyuda = function (e) {
+    if (e.target === document.getElementById('ayuda-modal')) {
+        document.getElementById('ayuda-modal').classList.add('hidden');
+    }
+};
+
 // ─── PAGO DE PENDIENTE ────────────────────────────────────────────────────────
 
 let pagoId  = null;
