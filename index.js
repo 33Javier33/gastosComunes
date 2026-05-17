@@ -5,6 +5,7 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbwEVnRw5npVWcO7EI8u5lS2
 let authData              = JSON.parse(localStorage.getItem('authData'));
 let expenses              = JSON.parse(localStorage.getItem('sharedExpenses')) || [];
 let archivedMonths        = JSON.parse(localStorage.getItem('archivedMonths')) || [];
+let deletedIds            = new Set(JSON.parse(localStorage.getItem('deletedIds') || '[]'));
 let selectedLoginUser     = '1';
 let currentPayerSelection = '1';
 let editPayerSelection    = '1';
@@ -307,33 +308,34 @@ window.markAsPaid = function (id) {
 };
 
 window.deleteExpense = function (id) {
-    if (confirm('¿Seguro que deseas eliminar este movimiento?')) {
-        const idx = expenses.findIndex(e => e.id === id);
-        if (idx !== -1) {
-            expenses[idx].deleted = true;
-            expenses[idx].updatedAt = new Date().toISOString();
-            persistExpenses();
-            scheduleAutoSync();
-            renderExpenses();
-            updateSummary();
-        }
-    }
+    if (!confirm('¿Eliminar este movimiento?')) return;
+    const sid = String(id);
+    const before = expenses.length;
+    expenses = expenses.filter(e => e.id !== sid);
+    if (expenses.length === before) return; // ID not found, nothing to do
+    deletedIds.add(sid);
+    persistDeletedIds();
+    persistExpenses();
+    scheduleAutoSync();
+    renderExpenses();
+    updateSummary();
 };
 
 // Clears ALL active expenses locally and from Google Sheets
-window.clearAllExpenses = async function () {
-    if (!confirm('¿Borrar TODOS los gastos activos? También se vaciarán las hojas del Sheet.')) return;
-
-    // Close drawer first
+window.clearAllExpenses = function () {
+    if (!confirm('¿Borrar TODOS los gastos? También se vaciarán las hojas del Sheet.')) return;
     toggleDrawer();
 
-    // Clear locally right away so the user sees the effect immediately
+    // Mark every current ID as permanently deleted so pull never restores them
+    expenses.forEach(e => deletedIds.add(String(e.id)));
+    persistDeletedIds();
+
     expenses = [];
     persistExpenses();
     renderExpenses();
     updateSummary();
 
-    // Fire-and-forget push to Sheet (best effort, no await so a GAS error won't block local clear)
+    // Fire-and-forget push so Sheet is cleared on new GAS
     fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
@@ -363,6 +365,7 @@ window.resetApp = function () {
     authData = null;
     expenses = [];
     archivedMonths = [];
+    deletedIds = new Set();
     editExpenseId = null;
 
     // Clear storage and mark so that any subsequent reload skips the boot pull
@@ -378,6 +381,10 @@ window.resetApp = function () {
 
 function persistExpenses() {
     localStorage.setItem('sharedExpenses', JSON.stringify(expenses));
+}
+
+function persistDeletedIds() {
+    localStorage.setItem('deletedIds', JSON.stringify([...deletedIds]));
 }
 
 // ─── 12. EDIT MODAL ──────────────────────────────────────────────────────────
@@ -842,12 +849,18 @@ async function pullFromSheet() {
 function mergeExpenses(remote) {
     const map = new Map(expenses.map(e => [e.id, e]));
     remote.forEach(r => {
-        const local = map.get(r.id);
-        if (!local) { map.set(r.id, r); return; }
-        if (local.deleted) return; // local delete always wins
+        const sid = String(r.id);
+        // Never restore an ID the user explicitly deleted on this device
+        if (deletedIds.has(sid)) return;
+        // Also skip items the Sheet marks as deleted (old GAS didn't have this column,
+        // new GAS writes 'TRUE'/'FALSE'; normalise here before deciding)
+        const remoteDeleted = r.deleted === true || String(r.deleted).toUpperCase() === 'TRUE';
+        if (remoteDeleted) return;
+        const local = map.get(sid);
+        if (!local) { map.set(sid, r); return; }
         const lt = new Date(local.updatedAt || 0).getTime();
         const rt = new Date(r.updatedAt    || 0).getTime();
-        if (rt > lt) map.set(r.id, r);
+        if (rt > lt) map.set(sid, r);
     });
     expenses = Array.from(map.values());
 }
