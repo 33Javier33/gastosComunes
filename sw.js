@@ -1,4 +1,4 @@
-const CACHE_NAME = 'spendsync-v1';
+const CACHE_NAME = 'spendsync-v2';
 const CACHE_TIMEOUT = 5000; // ms before falling back to cache
 
 const STATIC_ASSETS = [
@@ -7,9 +7,9 @@ const STATIC_ASSETS = [
     '/index.css',
     '/index.js',
     '/manifest.json',
-    'https://cdn.tailwindcss.com?plugins=forms,container-queries',
+    'https://cdn.tailwindcss.com?plugins=forms',
     'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
-    'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap'
+    'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0&display=swap'
 ];
 
 // ─── INSTALL: pre-cache static shell ─────────────────────────────────────────
