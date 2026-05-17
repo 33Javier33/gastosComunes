@@ -62,8 +62,14 @@
 
 <!-- ── BOOT LOADER ──────────────────────────────────────────────────────────── -->
 <div id="boot-loader" class="hidden fixed inset-0 z-[200] bg-surface flex flex-col items-center justify-center gap-4">
-    <span class="material-symbols-outlined text-[56px] text-primary spinning">cloud_sync</span>
-    <p class="text-label-md text-on-surface-variant">Cargando configuración…</p>
+    <span id="boot-icon" class="material-symbols-outlined text-[56px] text-primary spinning">cloud_sync</span>
+    <p id="boot-msg" class="text-label-md text-on-surface-variant">Cargando configuración…</p>
+    <button id="boot-retry" onclick="reintentar()" class="hidden h-12 px-8 bg-primary text-on-primary font-bold rounded-2xl active:scale-95 transition-transform">
+        Reintentar
+    </button>
+    <button id="boot-setup" onclick="bootLoader(false); mostrarVista('setup-view')" class="hidden text-label-md text-on-surface-variant underline">
+        Configurar desde cero
+    </button>
 </div>
 
 <!-- ── SETUP ─────────────────────────────────────────────────────────────────── -->

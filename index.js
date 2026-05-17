@@ -16,9 +16,12 @@ let sincroni   = false;
 // ─── AUTO-LOGOUT ──────────────────────────────────────────────────────────────
 
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && config) {
+    if (document.visibilityState === 'hidden' && usuario) {
         sessionStorage.removeItem('ss_usuario');
-        location.reload();
+        usuario = null;
+    }
+    if (document.visibilityState === 'visible' && config && !sessionStorage.getItem('ss_usuario')) {
+        mostrarLogin();
     }
 });
 
@@ -51,25 +54,49 @@ async function initApp() {
     bootLoader(true);
     try {
         const r = await pullDeSheet();
+        bootLoader(false);
         if (r.config) {
             config = r.config;
             gastos = normalizarGastos(r.gastos || []);
             guardarLocal();
-            bootLoader(false);
             if (sesion) { usuario = sesion; lanzarApp(); } else mostrarLogin();
         } else {
-            bootLoader(false);
+            // El servidor respondió pero no hay configuración → es una cuenta nueva
             mostrarVista('setup-view');
         }
     } catch {
-        bootLoader(false);
-        mostrarVista('setup-view');
+        // Error de red o del servidor → mostrar pantalla de reintento, NO setup
+        bootLoader(true, true);
     }
 }
 
-function bootLoader(mostrar) {
-    document.getElementById('boot-loader').classList.toggle('hidden', !mostrar);
+function bootLoader(mostrar, error = false) {
+    const el = document.getElementById('boot-loader');
+    if (!mostrar) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    const icon  = document.getElementById('boot-icon');
+    const msg   = document.getElementById('boot-msg');
+    const retry = document.getElementById('boot-retry');
+    const setup = document.getElementById('boot-setup');
+    if (error) {
+        icon.textContent = 'cloud_off';
+        icon.classList.remove('spinning');
+        msg.textContent = 'No se pudo conectar. Verifica tu conexión.';
+        retry.classList.remove('hidden');
+        setup.classList.remove('hidden');
+    } else {
+        icon.textContent = 'cloud_sync';
+        icon.classList.add('spinning');
+        msg.textContent = 'Cargando configuración…';
+        retry.classList.add('hidden');
+        setup.classList.add('hidden');
+    }
 }
+
+window.reintentar = function () {
+    bootLoader(false);
+    initApp();
+};
 
 // ─── VISTAS ───────────────────────────────────────────────────────────────────
 
