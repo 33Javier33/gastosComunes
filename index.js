@@ -12,6 +12,7 @@ let editId  = null;   // id del gasto en edición
 let editPag = '1';    // payer en modal de edición
 let syncTimer  = null;
 let sincroni   = false;
+let pullListo  = false; // impide push antes de que el primer pull complete
 
 // ─── AUTO-LOGOUT ──────────────────────────────────────────────────────────────
 
@@ -28,9 +29,9 @@ document.addEventListener('visibilitychange', () => {
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 
 async function initApp() {
-    // Tras un reset completo, ir directo a configuración sin pull
     if (localStorage.getItem('ss_reset')) {
         localStorage.removeItem('ss_reset');
+        pullListo = true; // sin datos previos, no hay riesgo de push vacío
         mostrarVista('setup-view');
         return;
     }
@@ -38,19 +39,14 @@ async function initApp() {
     const sesion = sessionStorage.getItem('ss_usuario');
 
     if (config) {
-        // Hay config local → mostrar login o app
-        if (sesion) {
-            usuario = sesion;
-            lanzarApp();
-        } else {
-            mostrarLogin();
-        }
-        // Pull silencioso en segundo plano para reflejar cambios del Sheet
-        pullSilencioso();
+        // Mostrar UI inmediatamente con datos locales, pull en segundo plano
+        if (sesion) { usuario = sesion; lanzarApp(); } else mostrarLogin();
+        // pullListo permanece false hasta que el pull termine → schedulePush bloqueado
+        await pullSilencioso();
         return;
     }
 
-    // Sin config local → intentar cargar desde el Sheet
+    // Sin config local → pull bloqueante antes de mostrar cualquier cosa
     bootLoader(true);
     try {
         const r = await pullDeSheet();
@@ -59,13 +55,13 @@ async function initApp() {
             config = r.config;
             gastos = normalizarGastos(r.gastos || []);
             guardarLocal();
+            pullListo = true;
             if (sesion) { usuario = sesion; lanzarApp(); } else mostrarLogin();
         } else {
-            // El servidor respondió pero no hay configuración → es una cuenta nueva
+            pullListo = true;
             mostrarVista('setup-view');
         }
     } catch {
-        // Error de red o del servidor → mostrar pantalla de reintento, NO setup
         bootLoader(true, true);
     }
 }
@@ -142,6 +138,7 @@ document.getElementById('setup-form').addEventListener('submit', async function 
     btn.textContent = 'Guardando…';
 
     try {
+        pullListo = true; // cuenta nueva, no hay pull que esperar
         await pushASheet();
         mostrarAlerta('setup-alert', '¡Configuración guardada! Ambos dispositivos quedarán sincronizados.', true);
         setTimeout(() => { sessionStorage.setItem('ss_usuario', '1'); usuario = '1'; lanzarApp(); }, 1200);
@@ -623,6 +620,7 @@ window.resetearApp = function () {
 // ─── SINCRONIZACIÓN ───────────────────────────────────────────────────────────
 
 function schedulePush() {
+    if (!pullListo) return; // nunca subir al Sheet antes de haber bajado
     clearTimeout(syncTimer);
     syncTimer = setTimeout(pushASheet, 2000);
 }
@@ -654,26 +652,25 @@ async function pullDeSheet() {
 async function pullSilencioso() {
     try {
         const r = await pullDeSheet();
-        if (!r.config) return;
-        config = r.config;
-        gastos = normalizarGastos(r.gastos || []);
-        guardarLocal();
-        if (usuario) renderTodo(); // solo actualizar si ya está en la app
-        localStorage.setItem('ss_lastSync', new Date().toISOString());
-        actualizarLabelSync();
-    } catch { /* sin conexión */ }
+        if (r.config) {
+            config = r.config;
+            gastos = normalizarGastos(r.gastos || []);
+            guardarLocal();
+            if (usuario) renderTodo();
+            localStorage.setItem('ss_lastSync', new Date().toISOString());
+            actualizarLabelSync();
+        }
+    } catch { /* sin conexión */ } finally {
+        pullListo = true; // aunque falle, habilitar pushes (es la hoja la que falta)
+    }
 }
 
 window.syncManual = async function () {
     if (sincroni) return;
     setSyncUI(true);
     try {
-        // Primero subir los cambios locales, luego bajar el Sheet
-        await fetch(GAS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({ action: 'push', gastos, config })
-        });
+        // Solo pull: el Sheet es la fuente de verdad.
+        // Los cambios locales ya se subieron vía schedulePush al hacerlos.
         const r = await pullDeSheet();
         if (r.config) {
             config = r.config;
