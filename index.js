@@ -263,14 +263,111 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
 
 // ─── ACCIONES SOBRE GASTOS ────────────────────────────────────────────────────
 
-window.marcarPagado = function (id) {
+// ─── PAGO DE PENDIENTE ────────────────────────────────────────────────────────
+
+let pagoId  = null;
+let pagoUsr = '1';
+
+window.abrirPago = function (id) {
     const g = gastos.find(x => x.id === id);
     if (!g) return;
-    g.tipo = 'gasto';
+    pagoId = id;
+
+    const es50 = g.pagador === 'compartido';
+    document.getElementById('pago-titulo').textContent = es50 ? 'Registrar pago (50/50)' : 'Registrar pago';
+    document.getElementById('pago-concepto').textContent = g.concepto;
+
+    const quienEl = document.getElementById('pago-quien');
+    quienEl.classList.toggle('hidden', !es50);
+
+    if (es50) {
+        document.getElementById('pago-btn-u1').textContent = config.nombre1;
+        document.getElementById('pago-btn-u2').textContent = config.nombre2;
+        seleccionarPagoUsr(usuario || '1');
+        document.getElementById('pago-hint').textContent = `Tu parte del 50/50: ${fmt(Math.round(g.monto / 2))} (total: ${fmt(g.monto)})`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(Math.round(g.monto / 2));
+    } else {
+        document.getElementById('pago-hint').textContent = `Total pendiente: ${fmt(g.monto)}`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(g.monto);
+    }
+
+    document.getElementById('pago-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('pago-monto').select(), 50);
+};
+
+window.seleccionarPagoUsr = function (u) {
+    pagoUsr = u;
+    ['1', '2'].forEach(n => {
+        const btn = document.getElementById('pago-btn-u' + n);
+        const sel = n === u;
+        btn.classList.toggle('border-primary', sel);
+        btn.classList.toggle('text-primary', sel);
+        btn.classList.toggle('bg-primary/10', sel);
+        btn.classList.toggle('border-outline-variant', !sel);
+        btn.classList.toggle('text-on-surface-variant', !sel);
+    });
+    const g = gastos.find(x => x.id === pagoId);
+    if (g && g.pagador === 'compartido') {
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(Math.round(g.monto / 2));
+    }
+};
+
+window.cerrarPago = function () {
+    document.getElementById('pago-modal').classList.add('hidden');
+    pagoId = null;
+};
+
+window.fondoPagoModal = function (e) {
+    if (e.target === document.getElementById('pago-modal')) cerrarPago();
+};
+
+window.confirmarPago = function () {
+    const g = gastos.find(x => x.id === pagoId);
+    if (!g) return;
+    const montoPagado = +document.getElementById('pago-monto').value.replace(/\D/g, '');
+    if (!montoPagado) return;
+
+    const ts = Date.now();
+    gastos = gastos.filter(x => x.id !== pagoId);
+
+    if (g.pagador === 'compartido') {
+        const mitad = Math.round(g.monto / 2);
+        const otroUsr = pagoUsr === '1' ? '2' : '1';
+
+        // Gasto por el monto efectivamente pagado
+        gastos.push({ id: String(ts), fecha: g.fecha, concepto: g.concepto, monto: montoPagado, pagador: pagoUsr, tipo: 'gasto' });
+
+        // Si pagó menos de su mitad, queda pendiente para él
+        const restanteProp = Math.max(0, mitad - montoPagado);
+        if (restanteProp > 0) {
+            gastos.push({ id: String(ts + 1), fecha: g.fecha, concepto: g.concepto, monto: restanteProp, pagador: pagoUsr, tipo: 'pendiente' });
+        }
+
+        // La mitad del otro usuario (reducida si se pagó de más)
+        const cubiertaAjena = Math.max(0, montoPagado - mitad);
+        const restanteOtro  = mitad - cubiertaAjena;
+        if (restanteOtro > 0) {
+            gastos.push({ id: String(ts + 2), fecha: g.fecha, concepto: g.concepto, monto: restanteOtro, pagador: otroUsr, tipo: 'pendiente' });
+        }
+    } else {
+        // Pendiente individual → gasto + pendiente reducido si fue pago parcial
+        gastos.push({ id: String(ts), fecha: g.fecha, concepto: g.concepto, monto: montoPagado, pagador: g.pagador, tipo: 'gasto' });
+        const restante = g.monto - montoPagado;
+        if (restante > 0) {
+            gastos.push({ id: String(ts + 1), fecha: g.fecha, concepto: g.concepto, monto: restante, pagador: g.pagador, tipo: 'pendiente' });
+        }
+    }
+
     guardarLocal();
     schedulePush();
     renderTodo();
+    cerrarPago();
 };
+
+document.getElementById('pago-monto').addEventListener('input', function () {
+    const val = this.value.replace(/\D/g, '');
+    this.value = val ? new Intl.NumberFormat('es-CL').format(+val) : '';
+});
 
 window.eliminar = function (id) {
     if (!confirm('¿Eliminar este movimiento?')) return;
@@ -394,8 +491,8 @@ function renderPendientes() {
                 <span class="font-headline-md text-headline-md ml-4">${fmt(g.monto)}</span>
             </div>
             <div class="flex gap-2 mt-3">
-                <button onclick="marcarPagado('${g.id}')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">check_circle</span>Marcar pagado
+                <button onclick="abrirPago('${g.id}')" class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">${g.pagador === 'compartido' ? 'payments' : 'check_circle'}</span>${g.pagador === 'compartido' ? 'Abonar / Pagar' : 'Marcar pagado'}
                 </button>
                 <button onclick="abrirEditar('${g.id}')" class="w-9 h-9 border border-primary text-primary rounded-lg flex items-center justify-center active:scale-95">
                     <span class="material-symbols-outlined text-sm">edit</span>

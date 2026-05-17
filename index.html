@@ -372,6 +372,46 @@
     </aside>
 </div>
 
+<!-- ── MODAL PAGO ───────────────────────────────────────────────────────────────── -->
+<div id="pago-modal" onclick="fondoPagoModal(event)"
+    class="hidden fixed inset-0 z-[150] bg-black/40 flex items-end justify-center">
+    <div class="w-full max-w-lg bg-surface rounded-t-2xl shadow-2xl">
+        <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-outline-variant">
+            <h3 id="pago-titulo" class="text-headline-md">Registrar pago</h3>
+            <button onclick="cerrarPago()" class="w-9 h-9 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div class="p-5 space-y-4 pb-8">
+            <p id="pago-concepto" class="text-label-md font-bold text-on-surface truncate"></p>
+
+            <!-- Selector de usuario (solo aparece para 50/50) -->
+            <div id="pago-quien" class="hidden space-y-2">
+                <label class="block text-label-sm text-on-surface-variant">¿Quién realiza el pago?</label>
+                <div class="grid grid-cols-2 gap-3">
+                    <button type="button" id="pago-btn-u1" onclick="seleccionarPagoUsr('1')"
+                        class="h-10 text-xs font-bold rounded-xl border border-outline-variant text-on-surface-variant transition-colors">U1</button>
+                    <button type="button" id="pago-btn-u2" onclick="seleccionarPagoUsr('2')"
+                        class="h-10 text-xs font-bold rounded-xl border border-outline-variant text-on-surface-variant transition-colors">U2</button>
+                </div>
+            </div>
+
+            <!-- Monto a pagar -->
+            <div class="space-y-1">
+                <label class="block text-label-sm text-on-surface-variant">Monto a pagar</label>
+                <p id="pago-hint" class="text-xs text-primary font-bold"></p>
+                <input id="pago-monto" type="text" inputmode="numeric" placeholder="$0"
+                    class="w-full h-14 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none text-xl font-bold"/>
+            </div>
+
+            <button onclick="confirmarPago()" class="w-full h-12 bg-secondary text-on-secondary font-bold rounded-xl active:scale-[0.98] transition-transform flex items-center justify-center gap-2">
+                <span class="material-symbols-outlined">payments</span>
+                Registrar pago
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- ── MODAL EDITAR ───────────────────────────────────────────────────────────── -->
 <div id="edit-modal" onclick="fondoModal(event)"
     class="hidden fixed inset-0 z-[150] bg-black/40 flex items-end justify-center">
