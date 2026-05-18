@@ -205,6 +205,25 @@ function obtenerHoja(nombre, cabeceras) {
             .setFontWeight('bold');
         hoja.setFrozenRows(1);
         hoja.autoResizeColumns(1, cabeceras.length);
+    } else {
+        // Migración: asegurar que el encabezado tenga todas las columnas esperadas.
+        // Esto corrige hojas creadas antes de agregar nuevas columnas (ej. "categoria").
+        const lastCol   = hoja.getLastColumn();
+        const headerVals = lastCol > 0
+            ? hoja.getRange(1, 1, 1, lastCol).getValues()[0].map(String)
+            : [];
+        let migro = false;
+        for (let i = 0; i < cabeceras.length; i++) {
+            if (String(headerVals[i] || '') !== cabeceras[i]) {
+                hoja.getRange(1, i + 1)
+                    .setValue(cabeceras[i])
+                    .setBackground(COLOR_HEADER)
+                    .setFontColor('#ffffff')
+                    .setFontWeight('bold');
+                migro = true;
+            }
+        }
+        if (migro) SpreadsheetApp.flush();
     }
     return hoja;
 }
