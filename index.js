@@ -35,17 +35,108 @@ let pullListo     = false; // impide push antes de que el primer pull complete
 let sinConexion   = !navigator.onLine;
 let pendientePush = localStorage.getItem('ss_pendiente_push') === 'true';
 
-// ─── AUTO-LOGOUT ──────────────────────────────────────────────────────────────
+// ─── SESIÓN Y SEGURIDAD ───────────────────────────────────────────────────────
 
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && usuario) {
+const SESSION_TIMEOUT_MS  = 15 * 60 * 1000; // 15 min sin actividad
+const MAX_INTENTOS_LOGIN  = 3;
+const LOCKOUT_MS          = 60 * 1000;       // 1 min bloqueado
+
+let sessionTimer    = null;
+let lockoutInterval = null;
+
+// ── Timer de inactividad ──────────────────────────────────────────────────────
+function iniciarTimerSesion() {
+    clearTimeout(sessionTimer);
+    sessionStorage.setItem('ss_last_act', Date.now().toString());
+    sessionTimer = setTimeout(() => {
+        if (!usuario) return;
         sessionStorage.removeItem('ss_usuario');
         usuario = null;
-    }
-    if (document.visibilityState === 'visible' && config && !sessionStorage.getItem('ss_usuario')) {
         mostrarLogin();
+        mostrarToast('Sesión cerrada por inactividad (15 min)');
+    }, SESSION_TIMEOUT_MS);
+}
+
+function detenerTimerSesion() {
+    clearTimeout(sessionTimer);
+    sessionTimer = null;
+}
+
+// Reiniciar timer ante cualquier interacción del usuario
+['click', 'touchstart', 'keydown'].forEach(evt =>
+    document.addEventListener(evt, () => { if (usuario) iniciarTimerSesion(); }, { passive: true })
+);
+
+// ── Visibilidad: cierre por inactividad al volver ─────────────────────────────
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && usuario) {
+        sessionStorage.setItem('ss_last_act', Date.now().toString());
+        detenerTimerSesion();
+    }
+    if (document.visibilityState === 'visible' && config) {
+        const sesion = sessionStorage.getItem('ss_usuario');
+        if (!sesion) { mostrarLogin(); return; }
+        const lastAct = parseInt(sessionStorage.getItem('ss_last_act') || '0', 10);
+        if (lastAct && Date.now() - lastAct > SESSION_TIMEOUT_MS) {
+            sessionStorage.removeItem('ss_usuario');
+            usuario = null;
+            mostrarLogin();
+            mostrarToast('Sesión cerrada por inactividad');
+        } else {
+            iniciarTimerSesion();
+        }
     }
 });
+
+// ── Bloqueo por intentos fallidos ─────────────────────────────────────────────
+function estadoBloqueo() {
+    return JSON.parse(localStorage.getItem('ss_login_lock') || '{"intentos":0,"hasta":0}');
+}
+function guardarBloqueo(s) {
+    localStorage.setItem('ss_login_lock', JSON.stringify(s));
+}
+
+function activarPanelBloqueo(hasta) {
+    const panel = document.getElementById('login-lockout');
+    const cnt   = document.getElementById('login-lockout-cnt');
+    const pin   = document.getElementById('login-pin');
+    const btn   = document.querySelector('#login-form button[type=submit]');
+    if (!panel) return;
+
+    panel.classList.remove('hidden');
+    pin.disabled = true;
+    btn.disabled = true;
+
+    clearInterval(lockoutInterval);
+    lockoutInterval = setInterval(() => {
+        const restante = Math.max(0, Math.ceil((hasta - Date.now()) / 1000));
+        if (cnt) cnt.textContent = restante > 0
+            ? `Intenta de nuevo en ${restante}s`
+            : 'Ya puedes intentar de nuevo';
+        if (restante <= 0) {
+            clearInterval(lockoutInterval);
+            panel.classList.add('hidden');
+            pin.disabled  = false;
+            btn.disabled  = false;
+            pin.focus();
+        }
+    }, 500);
+}
+
+function verificarBloqueoAlAbrir() {
+    const s = estadoBloqueo();
+    if (Date.now() < s.hasta) { activarPanelBloqueo(s.hasta); return true; }
+    return false;
+}
+
+// ── Toggle visibilidad de PIN ─────────────────────────────────────────────────
+window.toggleVerPin = function (inputId, btnId) {
+    const inp  = document.getElementById(inputId);
+    const icon = document.getElementById(btnId).querySelector('.material-symbols-outlined');
+    const mostrar = inp.type === 'password';
+    inp.type = mostrar ? 'text' : 'password';
+    icon.textContent = mostrar ? 'visibility_off' : 'visibility';
+};
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
 
@@ -138,6 +229,15 @@ function mostrarLogin() {
     document.getElementById('login-u2-nombre').textContent = config.nombre2;
     seleccionarUsuarioLogin('1');
     mostrarVista('login-view');
+    // Resetear ojo al mostrarse
+    const pin = document.getElementById('login-pin');
+    if (pin.type === 'text') {
+        pin.type = 'password';
+        const eye = document.getElementById('login-pin-eye');
+        if (eye) eye.querySelector('.material-symbols-outlined').textContent = 'visibility';
+    }
+    // Mostrar bloqueo si sigue activo
+    verificarBloqueoAlAbrir();
 }
 
 // ─── SETUP ────────────────────────────────────────────────────────────────────
@@ -189,16 +289,30 @@ function seleccionarUsuarioLogin(u) {
 
 document.getElementById('login-form').addEventListener('submit', function (e) {
     e.preventDefault();
+
+    const lock = estadoBloqueo();
+    if (Date.now() < lock.hasta) { activarPanelBloqueo(lock.hasta); return; }
+
     const pin = v('login-pin');
-    const ok  = loginUser === '1' ? pin === config.pin1 : pin === config.pin2;
+    document.getElementById('login-pin').value = '';
+
+    const ok = loginUser === '1' ? pin === config.pin1 : pin === config.pin2;
     if (ok) {
+        guardarBloqueo({ intentos: 0, hasta: 0 }); // limpiar contador
         sessionStorage.setItem('ss_usuario', loginUser);
         usuario = loginUser;
-        document.getElementById('login-pin').value = '';
         lanzarApp();
     } else {
-        mostrarAlerta('login-alert', 'PIN incorrecto.');
-        document.getElementById('login-pin').value = '';
+        const intentos = (lock.intentos || 0) + 1;
+        if (intentos >= MAX_INTENTOS_LOGIN) {
+            const hasta = Date.now() + LOCKOUT_MS;
+            guardarBloqueo({ intentos: 0, hasta });
+            activarPanelBloqueo(hasta);
+        } else {
+            guardarBloqueo({ intentos, hasta: 0 });
+            const restantes = MAX_INTENTOS_LOGIN - intentos;
+            mostrarAlerta('login-alert', `PIN incorrecto — ${restantes} intento${restantes === 1 ? '' : 's'} restante${restantes === 1 ? '' : 's'}.`);
+        }
     }
 });
 
@@ -211,6 +325,7 @@ document.getElementById('recovery-form').addEventListener('submit', function (e)
 });
 
 window.logout = function () {
+    detenerTimerSesion();
     sessionStorage.removeItem('ss_usuario');
     usuario = null;
     initApp();
@@ -235,6 +350,7 @@ function lanzarApp() {
     seleccionarPagador('1');
     renderTodo();
     renderGestionCats();
+    iniciarTimerSesion();
 }
 
 // ─── AGREGAR GASTO ────────────────────────────────────────────────────────────

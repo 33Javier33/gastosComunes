@@ -101,8 +101,14 @@
                     class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none"/>
                 <input id="setup-r1" required placeholder="RUT (12.345.678-9)" type="text"
                     class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none"/>
-                <input id="setup-p1" required placeholder="PIN de 4 dígitos" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}"
-                    class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none text-center tracking-[0.5em] text-xl"/>
+                <div class="relative">
+                    <input id="setup-p1" required placeholder="PIN de 4 dígitos" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}"
+                        class="w-full h-12 px-4 pr-11 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none text-center tracking-[0.5em] text-xl"/>
+                    <button type="button" id="setup-p1-eye" onclick="toggleVerPin('setup-p1','setup-p1-eye')"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-primary active:scale-95">
+                        <span class="material-symbols-outlined text-[20px]">visibility</span>
+                    </button>
+                </div>
             </div>
 
             <div class="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant space-y-3">
@@ -111,8 +117,14 @@
                     class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none"/>
                 <input id="setup-r2" required placeholder="RUT (12.345.678-9)" type="text"
                     class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none"/>
-                <input id="setup-p2" required placeholder="PIN de 4 dígitos" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}"
-                    class="w-full h-12 px-4 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none text-center tracking-[0.5em] text-xl"/>
+                <div class="relative">
+                    <input id="setup-p2" required placeholder="PIN de 4 dígitos" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}"
+                        class="w-full h-12 px-4 pr-11 rounded-xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none text-center tracking-[0.5em] text-xl"/>
+                    <button type="button" id="setup-p2-eye" onclick="toggleVerPin('setup-p2','setup-p2-eye')"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-primary active:scale-95">
+                        <span class="material-symbols-outlined text-[20px]">visibility</span>
+                    </button>
+                </div>
             </div>
 
             <button type="submit" class="w-full h-14 bg-primary text-on-primary font-bold text-label-md rounded-2xl shadow-lg active:scale-95 transition-transform">
@@ -149,8 +161,21 @@
         </div>
 
         <form id="login-form" class="space-y-3">
-            <input id="login-pin" required type="password" inputmode="numeric" maxlength="4" placeholder="••••"
-                class="w-full h-14 text-center text-2xl tracking-[1em] px-4 rounded-2xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none"/>
+            <!-- PIN con ojo -->
+            <div class="relative">
+                <input id="login-pin" required type="password" inputmode="numeric" maxlength="4" placeholder="••••"
+                    class="w-full h-14 text-center text-2xl tracking-[1em] px-4 pr-12 rounded-2xl border border-outline-variant focus:border-primary focus:ring-1 focus:ring-primary outline-none"/>
+                <button type="button" id="login-pin-eye" onclick="toggleVerPin('login-pin','login-pin-eye')"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-on-surface-variant hover:text-primary active:scale-95">
+                    <span class="material-symbols-outlined text-[22px]">visibility</span>
+                </button>
+            </div>
+            <!-- Panel de bloqueo -->
+            <div id="login-lockout" class="hidden bg-error/10 border border-error/20 rounded-2xl p-4 text-center space-y-1">
+                <span class="material-symbols-outlined text-error text-[28px]">lock</span>
+                <p class="text-error text-sm font-bold">Demasiados intentos fallidos</p>
+                <p id="login-lockout-cnt" class="text-error text-xs font-medium">Espera un momento…</p>
+            </div>
             <button type="submit" class="w-full h-14 bg-primary text-on-primary font-bold rounded-2xl active:scale-95 transition-transform">
                 Ingresar
             </button>
