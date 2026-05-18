@@ -2,14 +2,33 @@
 
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbwEVnRw5npVWcO7EI8u5lS2KbHeq5dYlh_41wHl1ZugSNq7gdpSaOiIRO1ek8Rlb-Tr/exec';
 
+// ─── CATEGORÍAS BASE ──────────────────────────────────────────────────────────
+
+const CATEGORIAS_BASE = [
+    { id: 'comida',         nombre: 'Comida',         icono: 'restaurant',        color: '#e67e22' },
+    { id: 'supermercado',   nombre: 'Supermercado',   icono: 'shopping_cart',     color: '#27ae60' },
+    { id: 'bencina',        nombre: 'Bencina',         icono: 'local_gas_station', color: '#c0392b' },
+    { id: 'arriendo',       nombre: 'Arriendo',        icono: 'home',              color: '#8e44ad' },
+    { id: 'entretencion',   nombre: 'Entretención',    icono: 'theaters',          color: '#2980b9' },
+    { id: 'salud',          nombre: 'Salud',           icono: 'favorite',          color: '#e91e63' },
+    { id: 'servicios',      nombre: 'Servicios',       icono: 'bolt',              color: '#f39c12' },
+    { id: 'ropa',           nombre: 'Ropa',            icono: 'checkroom',         color: '#16a085' },
+    { id: 'transporte',     nombre: 'Transporte',      icono: 'directions_bus',    color: '#2c3e50' },
+    { id: 'tecnologia',     nombre: 'Tecnología',      icono: 'devices',           color: '#1abc9c' },
+    { id: 'otras',          nombre: 'Otras',           icono: 'category',          color: '#95a5a6' },
+];
+
 // ─── ESTADO ───────────────────────────────────────────────────────────────────
 
-let config  = JSON.parse(localStorage.getItem('ss_config') || 'null');
-let gastos  = JSON.parse(localStorage.getItem('ss_gastos')  || '[]');
+let config     = JSON.parse(localStorage.getItem('ss_config')      || 'null');
+let gastos     = JSON.parse(localStorage.getItem('ss_gastos')       || '[]');
+let categorias = JSON.parse(localStorage.getItem('ss_categorias')   || 'null');
 let usuario = null;   // '1' o '2'
 let pagSel  = '1';    // payer seleccionado en formulario
 let editId  = null;   // id del gasto en edición
 let editPag = '1';    // payer en modal de edición
+let filtroCategoria = null; // filtro activo en historial
+let editCat = '';     // categoría seleccionada en modal editar
 let syncTimer     = null;
 let sincroni      = false;
 let pullListo     = false; // impide push antes de que el primer pull complete
@@ -56,6 +75,7 @@ async function initApp() {
         if (r.config) {
             config = r.config;
             gastos = normalizarGastos(r.gastos || []);
+            if (Array.isArray(r.categorias) && r.categorias.length) categorias = r.categorias;
             guardarLocal();
             pullListo = true;
             if (sesion) { usuario = sesion; lanzarApp(); } else mostrarLogin();
@@ -214,6 +234,7 @@ function lanzarApp() {
     document.getElementById('fecha').valueAsDate = new Date();
     seleccionarPagador('1');
     renderTodo();
+    renderGestionCats();
 }
 
 // ─── AGREGAR GASTO ────────────────────────────────────────────────────────────
@@ -246,6 +267,8 @@ function seleccionarPagador(p) {
     }
 }
 
+let formCat = ''; // categoría seleccionada en formulario nuevo
+
 document.getElementById('gasto-form').addEventListener('submit', function (e) {
     e.preventDefault();
     const monto = +v('monto').replace(/\D/g, '');
@@ -253,23 +276,26 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
 
     const esPropuesta = !!usuario && pagSel !== usuario;
     gastos.push({
-        id:       Date.now().toString(),
-        fecha:    v('fecha'),
-        concepto: v('concepto').trim(),
+        id:        Date.now().toString(),
+        fecha:     v('fecha'),
+        concepto:  v('concepto').trim(),
         monto,
-        pagador:  pagSel,
-        tipo:     esPropuesta
-                    ? `propuesto_${usuario}`
-                    : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto')
+        pagador:   pagSel,
+        categoria: formCat,
+        tipo:      esPropuesta
+                     ? `propuesto_${usuario}`
+                     : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto')
     });
 
     guardarLocal();
     schedulePush();
+    formCat = '';
     this.reset();
     document.getElementById('fecha').valueAsDate = new Date();
     document.getElementById('es-pendiente').checked = false;
     document.getElementById('concepto').focus();
     seleccionarPagador('1');
+    renderFormCatSelector();
     renderTodo();
     if (esPropuesta) {
         const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
@@ -519,6 +545,7 @@ window.abrirEditar = function (id) {
     const g = gastos.find(x => x.id === id);
     if (!g) return;
     editId  = id;
+    editCat = g.categoria || '';
     document.getElementById('edit-concepto').value = g.concepto;
     document.getElementById('edit-monto').value = new Intl.NumberFormat('es-CL').format(g.monto);
     document.getElementById('edit-fecha').value  = g.fecha;
@@ -526,6 +553,7 @@ window.abrirEditar = function (id) {
     document.getElementById('edit-btn-pag-1').textContent = config.nombre1;
     document.getElementById('edit-btn-pag-2').textContent = config.nombre2;
     seleccionarEditPagador(g.pagador);
+    renderEditCatSelector();
     document.getElementById('edit-modal').classList.remove('hidden');
 };
 
@@ -562,17 +590,89 @@ document.getElementById('edit-form').addEventListener('submit', function (e) {
     if (idx === -1) return;
     gastos[idx] = {
         ...gastos[idx],
-        concepto: v('edit-concepto').trim(),
-        monto:    +v('edit-monto').replace(/\D/g, ''),
-        fecha:    v('edit-fecha'),
-        tipo:     document.getElementById('edit-pendiente').checked ? 'pendiente' : 'gasto',
-        pagador:  editPag
+        concepto:  v('edit-concepto').trim(),
+        monto:     +v('edit-monto').replace(/\D/g, ''),
+        fecha:     v('edit-fecha'),
+        tipo:      document.getElementById('edit-pendiente').checked ? 'pendiente' : 'gasto',
+        pagador:   editPag,
+        categoria: editCat
     };
     guardarLocal();
     schedulePush();
     renderTodo();
     cerrarEditar();
 });
+
+// ─── CATEGORÍAS UI ────────────────────────────────────────────────────────────
+
+function renderSelectorCat(containerId, selectedId, onSelect) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    const cats = categoriasEfectivas();
+    el.innerHTML = cats.map(c => {
+        const sel = c.id === selectedId;
+        return `<button type="button" onclick="__catSel('${containerId}','${c.id}')"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all shrink-0 ${sel ? 'border-primary text-primary bg-primary/10' : 'border-outline-variant text-on-surface-variant'}"
+            style="${sel ? `border-color:${c.color};color:${c.color};background:${c.color}20` : ''}">
+            <span class="material-symbols-outlined text-[14px]">${c.icono}</span>${esc(c.nombre)}
+        </button>`;
+    }).join('');
+    el._onSelect = onSelect;
+}
+
+window.__catSel = function (containerId, id) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (containerId === 'cat-selector') {
+        formCat = formCat === id ? '' : id;
+        renderFormCatSelector();
+    } else if (containerId === 'edit-cat-selector') {
+        editCat = editCat === id ? '' : id;
+        renderEditCatSelector();
+    } else if (containerId === 'filtro-cat') {
+        filtroCategoria = filtroCategoria === id ? null : id;
+        renderFiltroBar();
+        renderHistorial();
+        renderEstadisticas();
+    }
+};
+
+function renderFormCatSelector() {
+    renderSelectorCat('cat-selector', formCat, null);
+}
+
+function renderEditCatSelector() {
+    renderSelectorCat('edit-cat-selector', editCat, null);
+}
+
+function renderFiltroBar() {
+    const el = document.getElementById('filtro-cat');
+    if (!el) return;
+    const cats = categoriasEfectivas();
+    const usadas = new Set(gastos.filter(g => g.tipo === 'gasto' && g.categoria).map(g => g.categoria));
+    const visibles = cats.filter(c => usadas.has(c.id));
+    const wrap = document.getElementById('filtro-cat-wrap');
+    if (visibles.length === 0) { wrap && wrap.classList.add('hidden'); return; }
+    wrap && wrap.classList.remove('hidden');
+    el.innerHTML = visibles.map(c => {
+        const sel = filtroCategoria === c.id;
+        return `<button type="button" onclick="__catSel('filtro-cat','${c.id}')"
+            class="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border transition-all shrink-0 ${sel ? 'border-primary text-on-primary' : 'border-outline-variant text-on-surface-variant'}"
+            style="${sel ? `background:${c.color};border-color:${c.color};color:#fff` : ''}">
+            <span class="material-symbols-outlined text-[13px]">${c.icono}</span>${esc(c.nombre)}
+        </button>`;
+    }).join('');
+}
+
+function catBadge(catId) {
+    if (!catId) return '';
+    const c = getCat(catId);
+    if (!c) return '';
+    return `<span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+        style="background:${c.color}20;color:${c.color}">
+        <span class="material-symbols-outlined text-[11px]">${c.icono}</span>${esc(c.nombre)}
+    </span>`;
+}
 
 // ─── RENDER ───────────────────────────────────────────────────────────────────
 
@@ -581,6 +681,9 @@ function renderTodo() {
     renderPropuestos();
     renderPendientes();
     renderHistorial();
+    renderFiltroBar();
+    renderEstadisticas();
+    renderFormCatSelector();
 }
 
 function renderResumen() {
@@ -662,26 +765,35 @@ function renderPendientes() {
 function renderHistorial() {
     const lista = document.getElementById('lista-gastos');
     const vacio = document.getElementById('vacio-gastos');
-    const items = gastos.filter(g => g.tipo === 'gasto').sort(porFecha);
+    let items = gastos.filter(g => g.tipo === 'gasto').sort(porFecha);
+    if (filtroCategoria) items = items.filter(g => g.categoria === filtroCategoria);
     lista.innerHTML = '';
 
     if (!items.length) { vacio.classList.remove('hidden'); return; }
     vacio.classList.add('hidden');
 
+    const cat = filtroCategoria ? getCat(filtroCategoria) : null;
+    const iconoCat = (g) => {
+        const c = getCat(g.categoria);
+        return c
+            ? `<span class="material-symbols-outlined text-[20px]" style="color:${c.color}">${c.icono}</span>`
+            : `<span class="material-symbols-outlined text-primary text-[20px]">paid</span>`;
+    };
+
     items.forEach(g => {
-        const badge = g.pagador === 'compartido'
+        const badge50 = g.pagador === 'compartido'
             ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
             : '';
         lista.innerHTML += `
         <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2">
             <div class="flex items-center gap-3 min-w-0">
                 <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                    <span class="material-symbols-outlined text-primary text-[20px]">paid</span>
+                    ${iconoCat(g)}
                 </div>
                 <div class="min-w-0">
                     <p class="font-label-md truncate">${esc(g.concepto)}</p>
                     <p class="text-[10px] text-on-surface-variant uppercase font-bold">${fmtFecha(g.fecha)} · ${nomPagador(g.pagador)}</p>
-                    ${badge}
+                    <div class="flex flex-wrap gap-1 mt-0.5">${badge50}${catBadge(g.categoria)}</div>
                 </div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
@@ -695,6 +807,127 @@ function renderHistorial() {
             </div>
         </div>`;
     });
+}
+
+// ─── ESTADÍSTICAS ─────────────────────────────────────────────────────────────
+
+function renderEstadisticas() {
+    const el = document.getElementById('seccion-estadisticas');
+    if (!el) return;
+
+    const gastosPagados = gastos.filter(g => g.tipo === 'gasto');
+    if (!gastosPagados.length) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+
+    // Por categoría
+    const porCat = {};
+    gastosPagados.forEach(g => {
+        const cid = g.categoria || 'otras';
+        porCat[cid] = (porCat[cid] || 0) + g.monto;
+    });
+    const totalGasto = gastosPagados.reduce((s, g) => s + g.monto, 0);
+    const catOrdenadas = Object.entries(porCat).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const maxCat = catOrdenadas[0]?.[1] || 1;
+
+    const barrasCat = catOrdenadas.map(([cid, monto]) => {
+        const c = getCat(cid) || { nombre: cid, icono: 'category', color: '#95a5a6' };
+        const pct = Math.round((monto / maxCat) * 100);
+        const pctTotal = Math.round((monto / totalGasto) * 100);
+        return `<div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-[16px] shrink-0" style="color:${c.color}">${c.icono}</span>
+            <div class="flex-1 min-w-0">
+                <div class="flex justify-between text-[11px] mb-0.5">
+                    <span class="font-bold truncate">${esc(c.nombre)}</span>
+                    <span class="text-on-surface-variant shrink-0 ml-1">${fmt(monto)} <span class="opacity-60">(${pctTotal}%)</span></span>
+                </div>
+                <div class="h-2 bg-surface-container rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${c.color}"></div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Mes actual
+    const ahora = new Date();
+    const mesKey = `${ahora.getFullYear()}-${String(ahora.getMonth()+1).padStart(2,'0')}`;
+    const gastosEsteMes = gastosPagados.filter(g => g.fecha && g.fecha.startsWith(mesKey));
+    const totalMes = gastosEsteMes.reduce((s, g) => s + g.monto, 0);
+    const mesMostrar = ahora.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+
+    // Por persona (solo gastos tipo gasto)
+    let t1 = 0, t2 = 0;
+    gastosPagados.forEach(g => {
+        if (g.pagador === '1') t1 += g.monto;
+        else if (g.pagador === '2') t2 += g.monto;
+        else { t1 += g.monto / 2; t2 += g.monto / 2; }
+    });
+    const maxP = Math.max(t1, t2, 1);
+
+    document.getElementById('stats-mes-label').textContent = mesMostrar;
+    document.getElementById('stats-mes-total').textContent = fmt(totalMes);
+    document.getElementById('stats-total').textContent = fmt(totalGasto);
+    document.getElementById('stats-barras-cat').innerHTML = barrasCat;
+
+    const pct1 = Math.round((t1 / maxP) * 100);
+    const pct2 = Math.round((t2 / maxP) * 100);
+    document.getElementById('stats-n1').textContent = config?.nombre1 || 'U1';
+    document.getElementById('stats-n2').textContent = config?.nombre2 || 'U2';
+    document.getElementById('stats-t1').textContent = fmt(t1);
+    document.getElementById('stats-t2').textContent = fmt(t2);
+    document.getElementById('stats-bar1').style.width = pct1 + '%';
+    document.getElementById('stats-bar2').style.width = pct2 + '%';
+}
+
+// ─── GESTIÓN DE CATEGORÍAS ────────────────────────────────────────────────────
+
+window.agregarCategoria = function () {
+    const nombre = (document.getElementById('nueva-cat-nombre').value || '').trim();
+    if (!nombre) return;
+    const cats = categoriasEfectivas().filter(c => !CATEGORIAS_BASE.find(b => b.id === c.id));
+    const id = 'custom_' + Date.now();
+    const nuevas = [...cats, { id, nombre, icono: 'label', color: '#3525cd' }];
+    categorias = [...CATEGORIAS_BASE, ...nuevas];
+    document.getElementById('nueva-cat-nombre').value = '';
+    guardarLocal();
+    pushCategorias();
+    renderGestionCats();
+    renderFormCatSelector();
+    renderFiltroBar();
+};
+
+window.eliminarCategoria = function (id) {
+    if (CATEGORIAS_BASE.find(c => c.id === id)) return;
+    categorias = categoriasEfectivas().filter(c => c.id !== id);
+    guardarLocal();
+    pushCategorias();
+    renderGestionCats();
+    renderFormCatSelector();
+    renderFiltroBar();
+};
+
+function renderGestionCats() {
+    const el = document.getElementById('lista-cats-custom');
+    if (!el) return;
+    const custom = categoriasEfectivas().filter(c => !CATEGORIAS_BASE.find(b => b.id === c.id));
+    el.innerHTML = custom.length ? custom.map(c => `
+        <div class="flex items-center gap-2 py-1">
+            <span class="material-symbols-outlined text-sm" style="color:${c.color}">${c.icono}</span>
+            <span class="flex-1 text-sm">${esc(c.nombre)}</span>
+            <button onclick="eliminarCategoria('${c.id}')" class="w-7 h-7 flex items-center justify-center text-error rounded-lg hover:bg-error/10">
+                <span class="material-symbols-outlined text-[16px]">delete</span>
+            </button>
+        </div>`).join('')
+    : '<p class="text-xs text-on-surface-variant">Sin categorías personalizadas.</p>';
+}
+
+async function pushCategorias() {
+    try {
+        await fetch(GAS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({ action: 'pushCategorias', categorias: categoriasEfectivas() })
+        });
+    } catch (e) { console.warn('[GastosComunes] Push categorías falló:', e); }
 }
 
 // ─── CAJÓN DE AJUSTES ─────────────────────────────────────────────────────────
@@ -729,6 +962,7 @@ window.borrarGastos = function () {
     if (!confirm('¿Borrar todos los gastos? La configuración de usuarios se mantiene.')) return;
     toggleCajon();
     gastos = [];
+    filtroCategoria = null;
     guardarLocal();
     renderTodo();
     // Push inmediato para limpiar el Sheet también
@@ -800,13 +1034,14 @@ async function pullSilencioso() {
         if (r.config) {
             config = r.config;
             gastos = normalizarGastos(r.gastos || []);
+            if (Array.isArray(r.categorias) && r.categorias.length) categorias = r.categorias;
             guardarLocal();
             if (usuario) renderTodo();
             localStorage.setItem('ss_lastSync', new Date().toISOString());
             actualizarLabelSync();
         }
     } catch { /* sin conexión */ } finally {
-        pullListo = true; // aunque falle, habilitar pushes (es la hoja la que falta)
+        pullListo = true;
     }
 }
 
@@ -820,6 +1055,7 @@ window.syncManual = async function () {
         if (r.config) {
             config = r.config;
             gastos = normalizarGastos(r.gastos || []);
+            if (Array.isArray(r.categorias) && r.categorias.length) categorias = r.categorias;
             guardarLocal();
             renderTodo();
         }
@@ -857,21 +1093,31 @@ function actualizarLabelSync() {
 // ─── UTILIDADES ───────────────────────────────────────────────────────────────
 
 function guardarLocal() {
-    localStorage.setItem('ss_config', JSON.stringify(config));
-    localStorage.setItem('ss_gastos',  JSON.stringify(gastos));
+    localStorage.setItem('ss_config',     JSON.stringify(config));
+    localStorage.setItem('ss_gastos',      JSON.stringify(gastos));
+    localStorage.setItem('ss_categorias',  JSON.stringify(categorias));
+}
+
+function categoriasEfectivas() {
+    return categorias && categorias.length ? categorias : CATEGORIAS_BASE;
+}
+
+function getCat(id) {
+    return categoriasEfectivas().find(c => c.id === id) || null;
 }
 
 function normalizarGastos(arr) {
     return arr
         .map(g => ({
-            id:       String(g.id || ''),
-            fecha:    extraerFecha(g.fecha),
-            concepto: String(g.concepto || ''),
-            monto:    Number(g.monto) || 0,
-            pagador:  ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
-            tipo:     ['gasto','pendiente','propuesto_1','propuesto_2'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto'
+            id:        String(g.id || ''),
+            fecha:     extraerFecha(g.fecha),
+            concepto:  String(g.concepto || ''),
+            monto:     Number(g.monto) || 0,
+            pagador:   ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
+            tipo:      ['gasto','pendiente','propuesto_1','propuesto_2'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto',
+            categoria: String(g.categoria || '')
         }))
-        .filter(g => g.id); // descartar filas sin ID
+        .filter(g => g.id);
 }
 
 function extraerFecha(v) {

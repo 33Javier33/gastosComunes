@@ -19,17 +19,19 @@
  *   Columna "tipo":    usar  gasto  o  pendiente
  */
 
-const HOJA_GASTOS  = 'Gastos';
-const HOJA_CONFIG  = 'Configuracion';
-const COL_GASTOS   = ['id', 'fecha', 'concepto', 'monto', 'pagador', 'tipo'];
-const COL_CONFIG   = ['clave', 'valor'];
-const COLOR_HEADER = '#3525cd';
+const HOJA_GASTOS      = 'Gastos';
+const HOJA_CONFIG      = 'Configuracion';
+const HOJA_CATEGORIAS  = 'Categorias';
+const COL_GASTOS       = ['id', 'fecha', 'concepto', 'monto', 'pagador', 'tipo', 'categoria'];
+const COL_CONFIG       = ['clave', 'valor'];
+const COL_CATEGORIAS   = ['id', 'nombre', 'icono', 'color'];
+const COLOR_HEADER     = '#3525cd';
 
 // ─── ENDPOINTS ────────────────────────────────────────────────────────────────
 
 function doGet() {
     try {
-        return ok({ gastos: leerGastos(), config: leerConfig() });
+        return ok({ gastos: leerGastos(), config: leerConfig(), categorias: leerCategorias() });
     } catch (err) {
         return fallo(err.message);
     }
@@ -45,9 +47,15 @@ function doPost(e) {
             return ok({ guardados: (b.gastos || []).length });
         }
 
+        if (b.action === 'pushCategorias') {
+            escribirCategorias(b.categorias || []);
+            return ok({ guardadas: (b.categorias || []).length });
+        }
+
         if (b.action === 'reset') {
             vaciarDatos(HOJA_GASTOS);
             vaciarDatos(HOJA_CONFIG);
+            vaciarDatos(HOJA_CATEGORIAS);
             return ok({ reset: true });
         }
 
@@ -78,14 +86,32 @@ function leerGastos() {
                 }
                 obj[c] = v;
             });
-            obj.id    = String(obj.id ?? '');
-            obj.monto = Number(obj.monto) || 0;
+            obj.id       = String(obj.id ?? '');
+            obj.monto    = Number(obj.monto) || 0;
+            obj.categoria = String(obj.categoria ?? '');
             // Validar pagador y tipo para filas editadas manualmente
             if (!['1', '2', 'compartido'].includes(String(obj.pagador))) obj.pagador = '1';
             if (!['gasto', 'pendiente', 'propuesto_1', 'propuesto_2'].includes(String(obj.tipo))) obj.tipo = 'gasto';
             return obj;
         })
         .filter(g => g.id); // ignorar filas sin ID
+}
+
+function leerCategorias() {
+    const hoja = obtenerHoja(HOJA_CATEGORIAS, COL_CATEGORIAS);
+    if (hoja.getLastRow() <= 1) return [];
+
+    const filas = hoja.getDataRange().getValues();
+    const cabs  = filas[0].map(String);
+
+    return filas.slice(1)
+        .filter(f => f[0] !== '' && f[0] !== null && f[0] !== undefined)
+        .map(f => {
+            const obj = {};
+            cabs.forEach((c, i) => { obj[c] = String(f[i] ?? ''); });
+            return obj;
+        })
+        .filter(c => c.id && c.nombre);
 }
 
 function leerConfig() {
@@ -112,18 +138,36 @@ function escribirGastos(gastos) {
     if (gastos.length === 0) { SpreadsheetApp.flush(); return; }
 
     const filas = gastos.map(g => [
-        String(g.id       || ''),
-        String(g.fecha    || '').substring(0, 10),
-        String(g.concepto || ''),
-        Number(g.monto)   || 0,
-        String(g.pagador  || '1'),
-        String(g.tipo     || 'gasto')
+        String(g.id        || ''),
+        String(g.fecha     || '').substring(0, 10),
+        String(g.concepto  || ''),
+        Number(g.monto)    || 0,
+        String(g.pagador   || '1'),
+        String(g.tipo      || 'gasto'),
+        String(g.categoria || '')
     ]);
 
     hoja.getRange(2, 1, filas.length, COL_GASTOS.length).setValues(filas);
     // Forzar texto en id (col 1) y fecha (col 2) para evitar conversiones de Sheets
     hoja.getRange(2, 1, filas.length, 1).setNumberFormat('@STRING@');
     hoja.getRange(2, 2, filas.length, 1).setNumberFormat('@STRING@');
+    SpreadsheetApp.flush();
+}
+
+function escribirCategorias(categorias) {
+    const hoja = obtenerHoja(HOJA_CATEGORIAS, COL_CATEGORIAS);
+    if (hoja.getLastRow() > 1) {
+        hoja.getRange(2, 1, hoja.getLastRow() - 1, COL_CATEGORIAS.length).clearContent();
+    }
+    if (categorias.length === 0) { SpreadsheetApp.flush(); return; }
+
+    const filas = categorias.map(c => [
+        String(c.id     || ''),
+        String(c.nombre || ''),
+        String(c.icono  || ''),
+        String(c.color  || '')
+    ]);
+    hoja.getRange(2, 1, filas.length, COL_CATEGORIAS.length).setValues(filas);
     SpreadsheetApp.flush();
 }
 
