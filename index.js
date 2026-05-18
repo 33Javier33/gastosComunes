@@ -34,6 +34,10 @@ let sincroni      = false;
 let pullListo     = false; // impide push antes de que el primer pull complete
 let sinConexion   = !navigator.onLine;
 let pendientePush = localStorage.getItem('ss_pendiente_push') === 'true';
+let pushEnCola    = false; // hay un push en debounce o en vuelo
+let pollTimer     = null;  // intervalo de polling periódico
+
+const POLL_MS = 30_000; // sincronización silenciosa cada 30 s
 
 // ─── SESIÓN Y SEGURIDAD ───────────────────────────────────────────────────────
 
@@ -50,6 +54,7 @@ function iniciarTimerSesion() {
     sessionStorage.setItem('ss_last_act', Date.now().toString());
     sessionTimer = setTimeout(() => {
         if (!usuario) return;
+        detenerPolling();
         sessionStorage.removeItem('ss_usuario');
         usuario = null;
         mostrarLogin();
@@ -72,6 +77,7 @@ document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && usuario) {
         sessionStorage.setItem('ss_last_act', Date.now().toString());
         detenerTimerSesion();
+        detenerPolling(); // no consumir recursos en segundo plano
     }
     if (document.visibilityState === 'visible' && config) {
         const sesion = sessionStorage.getItem('ss_usuario');
@@ -84,9 +90,58 @@ document.addEventListener('visibilitychange', () => {
             mostrarToast('Sesión cerrada por inactividad');
         } else {
             iniciarTimerSesion();
+            iniciarPolling(true); // reanudar + pull inmediato al volver
         }
     }
 });
+
+// ─── POLLING PERIÓDICO ────────────────────────────────────────────────────────
+
+function iniciarPolling(inmediato = false) {
+    detenerPolling();
+    if (inmediato) pollPeriodico();
+    pollTimer = setInterval(pollPeriodico, POLL_MS);
+}
+
+function detenerPolling() {
+    clearInterval(pollTimer);
+    pollTimer = null;
+}
+
+async function pollPeriodico() {
+    // No interrumpir si hay un push en curso o pendiente, o si el usuario no está logueado
+    if (!pullListo || !usuario || pushEnCola || sincroni) return;
+    try {
+        const r = await pullDeSheet();
+        if (!r.config) return;
+
+        // Snapshot ligero para detectar cambios reales
+        const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}`;
+        const snapAntes  = gastos.map(snap).sort().join('\n');
+
+        const propAntes  = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+
+        config = r.config;
+        gastos = normalizarGastos(r.gastos || []);
+        if (Array.isArray(r.categorias) && r.categorias.length) categorias = r.categorias;
+        guardarLocal();
+        localStorage.setItem('ss_lastSync', new Date().toISOString());
+        actualizarLabelSync();
+
+        const snapDespues = gastos.map(snap).sort().join('\n');
+        if (snapAntes === snapDespues) return; // sin cambios → silencio total
+
+        renderTodo();
+
+        const propAhora = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        if (propAhora > propAntes) {
+            const n = propAhora - propAntes;
+            mostrarToast(`¡Tienes ${n} movimiento${n > 1 ? 's' : ''} por confirmar!`);
+        } else {
+            mostrarToast('Datos actualizados');
+        }
+    } catch { /* sin conexión – silencio total */ }
+}
 
 // ── Bloqueo por intentos fallidos ─────────────────────────────────────────────
 function estadoBloqueo() {
@@ -326,6 +381,7 @@ document.getElementById('recovery-form').addEventListener('submit', function (e)
 
 window.logout = function () {
     detenerTimerSesion();
+    detenerPolling();
     sessionStorage.removeItem('ss_usuario');
     usuario = null;
     initApp();
@@ -351,6 +407,7 @@ function lanzarApp() {
     renderTodo();
     renderGestionCats();
     iniciarTimerSesion();
+    iniciarPolling();
 }
 
 // ─── AGREGAR GASTO ────────────────────────────────────────────────────────────
@@ -1170,7 +1227,8 @@ window.resetearApp = function () {
 // ─── SINCRONIZACIÓN ───────────────────────────────────────────────────────────
 
 function schedulePush() {
-    if (!pullListo) return; // nunca subir al Sheet antes de haber bajado
+    if (!pullListo) return;
+    pushEnCola = true; // bloquea el polling mientras haya cambios sin subir
     clearTimeout(syncTimer);
     syncTimer = setTimeout(pushASheet, 2000);
 }
@@ -1192,6 +1250,7 @@ async function pushASheet() {
         localStorage.setItem('ss_pendiente_push', 'true');
         console.warn('[GastosComunes] Push falló:', e);
     } finally {
+        pushEnCola = false; // liberar polling
         setSyncUI(false);
     }
 }
