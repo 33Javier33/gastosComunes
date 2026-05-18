@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gastos-comunes-v5';
+const CACHE_NAME = 'gastos-comunes-v6';
 const CACHE_TIMEOUT = 5000; // ms before falling back to cache
 
 const STATIC_ASSETS = [

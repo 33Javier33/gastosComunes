@@ -888,40 +888,99 @@ function renderHistorial() {
     if (!items.length) { vacio.classList.remove('hidden'); return; }
     vacio.classList.add('hidden');
 
-    const cat = filtroCategoria ? getCat(filtroCategoria) : null;
-    const iconoCat = (g) => {
+    const iconoCat = g => {
         const c = getCat(g.categoria);
         return c
             ? `<span class="material-symbols-outlined text-[20px]" style="color:${c.color}">${c.icono}</span>`
             : `<span class="material-symbols-outlined text-primary text-[20px]">paid</span>`;
     };
 
+    // Agrupar por mes (YYYY-MM), orden de inserción = más reciente primero
+    const meses = new Map();
     items.forEach(g => {
-        const badge50 = g.pagador === 'compartido'
-            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
-            : '';
+        const key = g.fecha.substring(0, 7);
+        if (!meses.has(key)) meses.set(key, []);
+        meses.get(key).push(g);
+    });
+
+    let primerMes = true;
+    meses.forEach((mesItems, key) => {
+        const [yr, mo] = key.split('-');
+        const mesLabel = new Date(+yr, +mo - 1, 1)
+            .toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+
+        // Totales del mes
+        let total = 0, t1 = 0, t2 = 0, tc = 0;
+        mesItems.forEach(g => {
+            total += g.monto;
+            if (g.pagador === '1')          { t1 += g.monto; }
+            else if (g.pagador === '2')     { t2 += g.monto; }
+            else { tc += g.monto; t1 += g.monto / 2; t2 += g.monto / 2; }
+        });
+
+        const n1 = config?.nombre1 || 'U1';
+        const n2 = config?.nombre2 || 'U2';
+
+        // ── Separador de mes ──────────────────────────────────────────────────
         lista.innerHTML += `
-        <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2">
-            <div class="flex items-center gap-3 min-w-0">
-                <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
-                    ${iconoCat(g)}
-                </div>
-                <div class="min-w-0">
-                    <p class="font-label-md truncate">${esc(g.concepto)}</p>
-                    <p class="text-[10px] text-on-surface-variant uppercase font-bold">${fmtFecha(g.fecha)} · ${nomPagador(g.pagador)}</p>
-                    <div class="flex flex-wrap gap-1 mt-0.5">${badge50}${catBadge(g.categoria)}</div>
-                </div>
+        <div class="${primerMes ? '' : 'mt-6'} mb-3">
+            <!-- Línea con nombre del mes -->
+            <div class="flex items-center gap-3 mb-3">
+                <div class="flex-1 h-px bg-outline-variant"></div>
+                <span class="material-symbols-outlined text-primary text-[18px] shrink-0">calendar_month</span>
+                <span class="text-label-sm font-bold text-primary capitalize whitespace-nowrap">${mesLabel}</span>
+                <div class="flex-1 h-px bg-outline-variant"></div>
             </div>
-            <div class="flex items-center gap-1 shrink-0">
-                <span class="font-bold">${fmt(g.monto)}</span>
-                <button onclick="abrirEditar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-primary">
-                    <span class="material-symbols-outlined text-[18px]">edit</span>
-                </button>
-                <button onclick="eliminar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-error">
-                    <span class="material-symbols-outlined text-[18px]">delete</span>
-                </button>
+            <!-- Resumen del mes -->
+            <div class="bg-primary/5 border border-primary/15 rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
+                <div>
+                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">${mesItems.length} gasto${mesItems.length === 1 ? '' : 's'}</p>
+                    <p class="text-headline-md font-bold text-primary leading-tight">${fmt(total)}</p>
+                    ${tc > 0 ? `<p class="text-[10px] text-on-surface-variant">Incluye ${fmt(tc)} compartidos</p>` : ''}
+                </div>
+                <div class="flex gap-4 text-right shrink-0">
+                    <div>
+                        <p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[72px]">${esc(n1)}</p>
+                        <p class="text-label-sm font-bold">${fmt(t1)}</p>
+                    </div>
+                    <div>
+                        <p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[72px]">${esc(n2)}</p>
+                        <p class="text-label-sm font-bold">${fmt(t2)}</p>
+                    </div>
+                </div>
             </div>
         </div>`;
+
+        primerMes = false;
+
+        // ── Items del mes ─────────────────────────────────────────────────────
+        mesItems.forEach(g => {
+            const badge50 = g.pagador === 'compartido'
+                ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
+                : '';
+            lista.innerHTML += `
+            <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2 mb-2">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
+                        ${iconoCat(g)}
+                    </div>
+                    <div class="min-w-0">
+                        <p class="font-label-md truncate">${esc(g.concepto)}</p>
+                        <p class="text-[10px] text-on-surface-variant uppercase font-bold">${fmtFecha(g.fecha)} · ${nomPagador(g.pagador)}</p>
+                        <div class="flex flex-wrap gap-1 mt-0.5">${badge50}${catBadge(g.categoria)}</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                    <span class="font-bold">${fmt(g.monto)}</span>
+                    <button onclick="abrirEditar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-primary">
+                        <span class="material-symbols-outlined text-[18px]">edit</span>
+                    </button>
+                    <button onclick="eliminar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-error">
+                        <span class="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                </div>
+            </div>`;
+        });
     });
 }
 
