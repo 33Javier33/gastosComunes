@@ -115,6 +115,10 @@ async function pollPeriodico() {
         const r = await pullDeSheet();
         if (!r.config) return;
 
+        // Re-verificar tras el await: el usuario pudo haber registrado algo
+        // mientras esperábamos la respuesta del servidor
+        if (pushEnCola) return;
+
         // Snapshot ligero para detectar cambios reales
         const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}`;
         const snapAntes  = gastos.map(snap).sort().join('\n');
