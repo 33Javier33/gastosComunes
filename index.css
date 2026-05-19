@@ -33,3 +33,18 @@ body {
 .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* Highlight de gasto recién agregado */
+@keyframes destacar {
+    0%, 50% {
+        box-shadow: 0 0 0 2px #3525cd;
+        background-color: #e2dfff;
+    }
+    100% {
+        box-shadow: 0 0 0 0px transparent;
+        background-color: transparent;
+    }
+}
+.gasto-nuevo {
+    animation: destacar 2.5s ease-out forwards;
+}

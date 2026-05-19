@@ -452,9 +452,15 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
     const monto = +v('monto').replace(/\D/g, '');
     if (!monto) return;
 
+    const btn         = this.querySelector('button[type=submit]');
+    const textoOrig   = btn.innerHTML;
+    btn.disabled      = true;
+    btn.innerHTML     = '<span class="material-symbols-outlined text-sm spinning">sync</span> Guardando…';
+
+    const nuevoId    = Date.now().toString();
     const esPropuesta = !!usuario && pagSel !== usuario;
-    gastos.push({
-        id:        Date.now().toString(),
+    const nuevoGasto = {
+        id:        nuevoId,
         fecha:     v('fecha'),
         concepto:  v('concepto').trim(),
         monto,
@@ -463,22 +469,38 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
         tipo:      esPropuesta
                      ? `propuesto_${usuario}`
                      : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto')
-    });
+    };
 
+    gastos.push(nuevoGasto);
     guardarLocal();
     schedulePush();
     formCat = '';
     this.reset();
     document.getElementById('fecha').valueAsDate = new Date();
     document.getElementById('es-pendiente').checked = false;
-    document.getElementById('concepto').focus();
     seleccionarPagador('1');
     renderFormCatSelector();
-    renderTodo();
-    if (esPropuesta) {
-        const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
-        mostrarToast(`Enviado a ${otroNombre} para confirmar`);
-    }
+
+    setTimeout(() => {
+        btn.disabled  = false;
+        btn.innerHTML = textoOrig;
+        renderTodo();
+
+        if (esPropuesta) {
+            const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
+            mostrarToast(`Enviado a ${otroNombre} para confirmar`);
+        }
+
+        // Scroll al nuevo gasto y resaltarlo
+        const prefijo = nuevoGasto.tipo === 'pendiente' ? 'pendiente' : 'gasto';
+        setTimeout(() => {
+            const el = document.getElementById(`${prefijo}-${nuevoId}`);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('gasto-nuevo');
+            setTimeout(() => el.classList.remove('gasto-nuevo'), 2600);
+        }, 80);
+    }, 700);
 });
 
 // ─── ACCIONES SOBRE GASTOS ────────────────────────────────────────────────────
@@ -972,7 +994,7 @@ function renderPendientes() {
                </button>`;
 
         lista.innerHTML += `
-        <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-sm">
+        <div id="pendiente-${g.id}" class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-sm">
             <div class="flex justify-between items-start">
                 <div>
                     <p class="font-bold text-on-surface">${esc(g.concepto)}</p>
@@ -1088,7 +1110,7 @@ function renderHistorial() {
                 ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
                 : '';
             lista.innerHTML += `
-            <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2 mb-2">
+            <div id="gasto-${g.id}" class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2 mb-2">
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
                         ${iconoCat(g)}
