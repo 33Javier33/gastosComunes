@@ -27,7 +27,8 @@ let usuario = null;   // '1' o '2'
 let pagSel  = '1';    // payer seleccionado en formulario
 let editId  = null;   // id del gasto en edición
 let editPag = '1';    // payer en modal de edición
-let filtroCategoria = null; // filtro activo en historial
+let filtroCategoria = null; // filtro activo por categoría en historial
+let filtroUsuario   = null; // filtro activo por usuario ('1','2','compartido')
 let editCat = '';     // categoría seleccionada en modal editar
 let syncTimer     = null;
 let sincroni      = false;
@@ -822,13 +823,52 @@ function renderEditCatSelector() {
     renderSelectorCat('edit-cat-selector', editCat, null);
 }
 
+function renderFiltroUsuario() {
+    const el   = document.getElementById('filtro-usuario');
+    const wrap = document.getElementById('filtros-historial');
+    if (!el || !wrap) return;
+
+    const gastosPagados = gastos.filter(g => g.tipo === 'gasto');
+    if (!gastosPagados.length) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+
+    const opciones = [
+        { id: null,         nombre: 'Todos',     icono: 'group'      },
+        { id: '1',          nombre: config?.nombre1 || 'U1', icono: 'person' },
+        { id: '2',          nombre: config?.nombre2 || 'U2', icono: 'person' },
+        { id: 'compartido', nombre: '50/50',      icono: 'handshake'  },
+    ].filter(u => u.id === null || gastosPagados.some(g => g.pagador === u.id));
+
+    el.innerHTML = opciones.map(u => {
+        const sel = filtroUsuario === u.id;
+        return `<button type="button" onclick="__usrSel(${u.id === null ? 'null' : `'${u.id}'`})"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all shrink-0
+                   ${sel ? 'bg-primary text-on-primary border-primary' : 'border-outline-variant text-on-surface-variant'}">
+            <span class="material-symbols-outlined text-[14px]">${u.icono}</span>${esc(u.nombre)}
+        </button>`;
+    }).join('');
+}
+
+window.__usrSel = function (id) {
+    filtroUsuario = (id === null || id === 'null') ? null : id;
+    renderFiltroUsuario();
+    renderFiltroBar();
+    renderHistorial();
+};
+
 function renderFiltroBar() {
     const el = document.getElementById('filtro-cat');
     if (!el) return;
     const cats = categoriasEfectivas();
-    const usadas = new Set(gastos.filter(g => g.tipo === 'gasto' && g.categoria).map(g => g.categoria));
+    // Solo mostrar categorías usadas en los gastos ya filtrados por usuario
+    const base = filtroUsuario
+        ? gastos.filter(g => g.tipo === 'gasto' && g.pagador === filtroUsuario)
+        : gastos.filter(g => g.tipo === 'gasto');
+    const usadas = new Set(base.filter(g => g.categoria).map(g => g.categoria));
     const visibles = cats.filter(c => usadas.has(c.id));
     const wrap = document.getElementById('filtro-cat-wrap');
+    // Si la categoría activa ya no existe en los gastos filtrados, limpiarla
+    if (filtroCategoria && !usadas.has(filtroCategoria)) filtroCategoria = null;
     if (visibles.length === 0) { wrap && wrap.classList.add('hidden'); return; }
     wrap && wrap.classList.remove('hidden');
     el.innerHTML = visibles.map(c => {
@@ -858,6 +898,7 @@ function renderTodo() {
     renderPropuestos();
     renderPendientes();
     renderHistorial();
+    renderFiltroUsuario();
     renderFiltroBar();
     renderEstadisticas();
     renderFormCatSelector();
@@ -943,6 +984,7 @@ function renderHistorial() {
     const lista = document.getElementById('lista-gastos');
     const vacio = document.getElementById('vacio-gastos');
     let items = gastos.filter(g => g.tipo === 'gasto').sort(porFecha);
+    if (filtroUsuario)   items = items.filter(g => g.pagador === filtroUsuario);
     if (filtroCategoria) items = items.filter(g => g.categoria === filtroCategoria);
     lista.innerHTML = '';
 
@@ -982,33 +1024,45 @@ function renderHistorial() {
         const n1 = config?.nombre1 || 'U1';
         const n2 = config?.nombre2 || 'U2';
 
-        // ── Separador de mes ──────────────────────────────────────────────────
+        // ── Separador de mes — adaptar según filtro de usuario activo ────────
+        let resumenDerecha;
+        if (filtroUsuario === '1') {
+            resumenDerecha = `<div class="text-right shrink-0">
+                <p class="text-[10px] text-on-surface-variant font-bold">${esc(n1)}</p>
+                <p class="text-label-sm font-bold">${fmt(t1)}</p>
+            </div>`;
+        } else if (filtroUsuario === '2') {
+            resumenDerecha = `<div class="text-right shrink-0">
+                <p class="text-[10px] text-on-surface-variant font-bold">${esc(n2)}</p>
+                <p class="text-label-sm font-bold">${fmt(t2)}</p>
+            </div>`;
+        } else if (filtroUsuario === 'compartido') {
+            resumenDerecha = `<div class="flex gap-3 text-right shrink-0">
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n1)}</p><p class="text-label-sm font-bold">${fmt(tc/2)}</p></div>
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n2)}</p><p class="text-label-sm font-bold">${fmt(tc/2)}</p></div>
+            </div>`;
+        } else {
+            resumenDerecha = `<div class="flex gap-3 text-right shrink-0">
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n1)}</p><p class="text-label-sm font-bold">${fmt(t1)}</p></div>
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n2)}</p><p class="text-label-sm font-bold">${fmt(t2)}</p></div>
+            </div>`;
+        }
+
         lista.innerHTML += `
         <div class="${primerMes ? '' : 'mt-6'} mb-3">
-            <!-- Línea con nombre del mes -->
             <div class="flex items-center gap-3 mb-3">
                 <div class="flex-1 h-px bg-outline-variant"></div>
                 <span class="material-symbols-outlined text-primary text-[18px] shrink-0">calendar_month</span>
                 <span class="text-label-sm font-bold text-primary capitalize whitespace-nowrap">${mesLabel}</span>
                 <div class="flex-1 h-px bg-outline-variant"></div>
             </div>
-            <!-- Resumen del mes -->
             <div class="bg-primary/5 border border-primary/15 rounded-2xl px-4 py-3 flex items-center justify-between gap-2">
                 <div>
                     <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">${mesItems.length} gasto${mesItems.length === 1 ? '' : 's'}</p>
                     <p class="text-headline-md font-bold text-primary leading-tight">${fmt(total)}</p>
-                    ${tc > 0 ? `<p class="text-[10px] text-on-surface-variant">Incluye ${fmt(tc)} compartidos</p>` : ''}
+                    ${!filtroUsuario && tc > 0 ? `<p class="text-[10px] text-on-surface-variant">Incluye ${fmt(tc)} compartidos</p>` : ''}
                 </div>
-                <div class="flex gap-4 text-right shrink-0">
-                    <div>
-                        <p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[72px]">${esc(n1)}</p>
-                        <p class="text-label-sm font-bold">${fmt(t1)}</p>
-                    </div>
-                    <div>
-                        <p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[72px]">${esc(n2)}</p>
-                        <p class="text-label-sm font-bold">${fmt(t2)}</p>
-                    </div>
-                </div>
+                ${resumenDerecha}
             </div>
         </div>`;
 
@@ -1199,6 +1253,7 @@ window.borrarGastos = function () {
     toggleCajon();
     gastos = [];
     filtroCategoria = null;
+    filtroUsuario   = null;
     guardarLocal();
     renderTodo();
     // Push inmediato para limpiar el Sheet también
