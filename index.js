@@ -712,11 +712,25 @@ document.getElementById('pago-monto').addEventListener('input', function () {
 });
 
 window.eliminar = function (id) {
-    if (!confirm('¿Eliminar este movimiento?')) return;
-    gastos = gastos.filter(x => x.id !== id);
-    guardarLocal();
-    schedulePush();
-    renderTodo();
+    const g = gastos.find(x => x.id === id);
+    if (!g) return;
+    const modal = document.getElementById('confirm-modal');
+    const concepto = document.getElementById('confirm-modal-concepto');
+    const btn = document.getElementById('confirm-modal-btn');
+    concepto.textContent = `${g.concepto} · ${fmt(g.monto)}`;
+    btn.onclick = () => {
+        cerrarConfirm();
+        gastos = gastos.filter(x => x.id !== id);
+        guardarLocal();
+        schedulePush();
+        renderTodo();
+        mostrarToast('Movimiento eliminado');
+    };
+    modal.classList.remove('hidden');
+};
+
+window.cerrarConfirm = function () {
+    document.getElementById('confirm-modal').classList.add('hidden');
 };
 
 window.abrirEditar = function (id) {
@@ -1087,10 +1101,10 @@ function renderHistorial() {
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                     <span class="font-bold">${fmt(g.monto)}</span>
-                    <button onclick="abrirEditar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-primary">
+                    <button onclick="abrirEditar('${g.id}')" class="w-9 h-9 flex items-center justify-center text-primary/70 active:scale-95 transition-transform">
                         <span class="material-symbols-outlined text-[18px]">edit</span>
                     </button>
-                    <button onclick="eliminar('${g.id}')" class="w-8 h-8 flex items-center justify-center text-on-surface-variant/50 hover:text-error">
+                    <button onclick="eliminar('${g.id}')" class="w-9 h-9 flex items-center justify-center text-error/70 active:scale-95 transition-transform">
                         <span class="material-symbols-outlined text-[18px]">delete</span>
                     </button>
                 </div>
