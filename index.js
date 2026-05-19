@@ -30,6 +30,8 @@ let editPag = '1';    // payer en modal de edición
 let filtroCategoria = null; // filtro activo por categoría en historial
 let filtroUsuario   = null; // filtro activo por usuario ('1','2','compartido')
 let editCat = '';     // categoría seleccionada en modal editar
+let partePersonalizada     = { u1: 0, u2: 0 };
+let editPartePersonalizada = { u1: 0, u2: 0 };
 let syncTimer     = null;
 let sincroni      = false;
 let pullListo     = false; // impide push antes de que el primer pull complete
@@ -420,6 +422,30 @@ function lanzarApp() {
 document.getElementById('monto').addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
     this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
+    if (pagSel === 'compartido') {
+        partePersonalizada = { u1: 0, u2: 0 };
+        actualizarPanelDivision();
+    }
+});
+
+document.getElementById('div-p1').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    partePersonalizada.u1 = raw;
+    partePersonalizada.u2 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('div-p2').value = new Intl.NumberFormat('es-CL').format(partePersonalizada.u2);
+    validarDivision();
+});
+
+document.getElementById('div-p2').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    partePersonalizada.u2 = raw;
+    partePersonalizada.u1 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('div-p1').value = new Intl.NumberFormat('es-CL').format(partePersonalizada.u1);
+    validarDivision();
 });
 
 function seleccionarPagador(p) {
@@ -433,6 +459,14 @@ function seleccionarPagador(p) {
         btn.classList.toggle('border-outline-variant', !sel);
         btn.classList.toggle('text-on-surface-variant', !sel);
     });
+    const panel = document.getElementById('panel-division');
+    if (p === 'compartido') {
+        panel.classList.remove('hidden');
+        partePersonalizada = { u1: 0, u2: 0 };
+        actualizarPanelDivision();
+    } else {
+        panel.classList.add('hidden');
+    }
     const esPropuesta = !!usuario && pagSel !== usuario;
     const wrap  = document.getElementById('pendiente-wrap');
     const hint  = document.getElementById('propuesta-hint');
@@ -443,6 +477,26 @@ function seleccionarPagador(p) {
         const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
         texto.textContent = `${otroNombre} recibirá este movimiento para confirmar.`;
     }
+}
+
+function actualizarPanelDivision() {
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    const fmtN  = n => n ? new Intl.NumberFormat('es-CL').format(n) : '';
+    if (!partePersonalizada.u1 && !partePersonalizada.u2) {
+        partePersonalizada.u1 = Math.round(monto / 2);
+        partePersonalizada.u2 = monto - Math.round(monto / 2);
+    }
+    document.getElementById('div-lbl-1').textContent = config?.nombre1 || 'U1';
+    document.getElementById('div-lbl-2').textContent = config?.nombre2 || 'U2';
+    document.getElementById('div-p1').value = fmtN(partePersonalizada.u1);
+    document.getElementById('div-p2').value = fmtN(partePersonalizada.u2);
+    validarDivision();
+}
+
+function validarDivision() {
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    const ok    = (partePersonalizada.u1 + partePersonalizada.u2) === monto;
+    document.getElementById('div-alerta').classList.toggle('hidden', ok || monto === 0);
 }
 
 let formCat = ''; // categoría seleccionada en formulario nuevo
@@ -468,7 +522,9 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
         categoria: formCat,
         tipo:      esPropuesta
                      ? `propuesto_${usuario}`
-                     : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto')
+                     : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto'),
+        parte1:    pagSel === 'compartido' ? partePersonalizada.u1 : undefined,
+        parte2:    pagSel === 'compartido' ? partePersonalizada.u2 : undefined,
     };
 
     gastos.push(nuevoGasto);
@@ -478,6 +534,7 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
     this.reset();
     document.getElementById('fecha').valueAsDate = new Date();
     document.getElementById('es-pendiente').checked = false;
+    partePersonalizada = { u1: 0, u2: 0 };
     seleccionarPagador('1');
     renderFormCatSelector();
 
@@ -767,6 +824,12 @@ window.abrirEditar = function (id) {
     document.getElementById('edit-btn-pag-1').textContent = config.nombre1;
     document.getElementById('edit-btn-pag-2').textContent = config.nombre2;
     seleccionarEditPagador(g.pagador);
+    if (g.pagador === 'compartido') {
+        editPartePersonalizada = {
+            u1: g.parte1 !== undefined ? Number(g.parte1) : Math.round(g.monto / 2),
+            u2: g.parte2 !== undefined ? Number(g.parte2) : g.monto - Math.round(g.monto / 2)
+        };
+    }
     renderEditCatSelector();
     document.getElementById('edit-modal').classList.remove('hidden');
 };
@@ -783,6 +846,30 @@ window.fondoModal = function (e) {
 document.getElementById('edit-monto').addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
     this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
+    if (editPag === 'compartido') {
+        editPartePersonalizada = { u1: 0, u2: 0 };
+        actualizarEditPanelDivision();
+    }
+});
+
+document.getElementById('edit-div-p1').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    editPartePersonalizada.u1 = raw;
+    editPartePersonalizada.u2 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('edit-div-p2').value = new Intl.NumberFormat('es-CL').format(editPartePersonalizada.u2);
+    validarEditDivision();
+});
+
+document.getElementById('edit-div-p2').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    editPartePersonalizada.u2 = raw;
+    editPartePersonalizada.u1 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('edit-div-p1').value = new Intl.NumberFormat('es-CL').format(editPartePersonalizada.u1);
+    validarEditDivision();
 });
 
 function seleccionarEditPagador(p) {
@@ -796,6 +883,33 @@ function seleccionarEditPagador(p) {
         btn.classList.toggle('border-outline-variant', !sel);
         btn.classList.toggle('text-on-surface-variant', !sel);
     });
+    const panel = document.getElementById('edit-panel-division');
+    if (p === 'compartido') {
+        panel.classList.remove('hidden');
+        actualizarEditPanelDivision();
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function actualizarEditPanelDivision() {
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    const fmtN  = n => n ? new Intl.NumberFormat('es-CL').format(n) : '';
+    if (!editPartePersonalizada.u1 && !editPartePersonalizada.u2) {
+        editPartePersonalizada.u1 = Math.round(monto / 2);
+        editPartePersonalizada.u2 = monto - Math.round(monto / 2);
+    }
+    document.getElementById('edit-div-lbl-1').textContent = config?.nombre1 || 'U1';
+    document.getElementById('edit-div-lbl-2').textContent = config?.nombre2 || 'U2';
+    document.getElementById('edit-div-p1').value = fmtN(editPartePersonalizada.u1);
+    document.getElementById('edit-div-p2').value = fmtN(editPartePersonalizada.u2);
+    validarEditDivision();
+}
+
+function validarEditDivision() {
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    const ok    = (editPartePersonalizada.u1 + editPartePersonalizada.u2) === monto;
+    document.getElementById('edit-div-alerta').classList.toggle('hidden', ok || monto === 0);
 }
 
 document.getElementById('edit-form').addEventListener('submit', function (e) {
@@ -1459,6 +1573,12 @@ function normalizarGastos(arr) {
             categoria: String(g.categoria || '')
         }))
         .filter(g => g.id);
+}
+
+function partePor(g, usr) {
+    if (g.pagador !== 'compartido') return g.pagador === usr ? g.monto : 0;
+    const p = usr === '1' ? g.parte1 : g.parte2;
+    return (p !== undefined && p !== null && p !== '') ? Number(p) : g.monto / 2;
 }
 
 function extraerFecha(v) {

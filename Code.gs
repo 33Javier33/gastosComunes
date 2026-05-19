@@ -22,7 +22,7 @@
 const HOJA_GASTOS      = 'Gastos';
 const HOJA_CONFIG      = 'Configuracion';
 const HOJA_CATEGORIAS  = 'Categorias';
-const COL_GASTOS       = ['id', 'fecha', 'concepto', 'monto', 'pagador', 'tipo', 'categoria'];
+const COL_GASTOS       = ['id', 'fecha', 'concepto', 'monto', 'pagador', 'tipo', 'categoria', 'parte1', 'parte2'];
 const COL_CONFIG       = ['clave', 'valor'];
 const COL_CATEGORIAS   = ['id', 'nombre', 'icono', 'color'];
 const COLOR_HEADER     = '#3525cd';
@@ -89,6 +89,8 @@ function leerGastos() {
             obj.id       = String(obj.id ?? '');
             obj.monto    = Number(obj.monto) || 0;
             obj.categoria = String(obj.categoria ?? '');
+            obj.parte1 = (obj.parte1 !== '' && obj.parte1 !== undefined) ? Number(obj.parte1) : undefined;
+            obj.parte2 = (obj.parte2 !== '' && obj.parte2 !== undefined) ? Number(obj.parte2) : undefined;
             // Validar pagador y tipo para filas editadas manualmente
             if (!['1', '2', 'compartido'].includes(String(obj.pagador))) obj.pagador = '1';
             if (!['gasto', 'pendiente', 'propuesto_1', 'propuesto_2'].includes(String(obj.tipo))) obj.tipo = 'gasto';
@@ -144,7 +146,9 @@ function escribirGastos(gastos) {
         Number(g.monto)    || 0,
         String(g.pagador   || '1'),
         String(g.tipo      || 'gasto'),
-        String(g.categoria || '')
+        String(g.categoria || ''),
+        (g.parte1 !== undefined && g.parte1 !== '') ? Number(g.parte1) : '',
+        (g.parte2 !== undefined && g.parte2 !== '') ? Number(g.parte2) : ''
     ]);
 
     hoja.getRange(2, 1, filas.length, COL_GASTOS.length).setValues(filas);
