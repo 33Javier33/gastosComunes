@@ -825,13 +825,15 @@ window.abrirEditar = function (id) {
     document.getElementById('edit-pendiente').checked = g.tipo === 'pendiente';
     document.getElementById('edit-btn-pag-1').textContent = config.nombre1;
     document.getElementById('edit-btn-pag-2').textContent = config.nombre2;
+    // Fijar partes ANTES de llamar seleccionarEditPagador para que el panel
+    // se rellene con los valores correctos (no con 50/50 por defecto)
+    editPartePersonalizada = g.pagador === 'compartido'
+        ? {
+            u1: (g.parte1 !== undefined && g.parte1 !== 0) ? Number(g.parte1) : Math.round(g.monto / 2),
+            u2: (g.parte2 !== undefined && g.parte2 !== 0) ? Number(g.parte2) : g.monto - Math.round(g.monto / 2)
+          }
+        : { u1: 0, u2: 0 };
     seleccionarEditPagador(g.pagador);
-    if (g.pagador === 'compartido') {
-        editPartePersonalizada = {
-            u1: g.parte1 !== undefined ? Number(g.parte1) : Math.round(g.monto / 2),
-            u2: g.parte2 !== undefined ? Number(g.parte2) : g.monto - Math.round(g.monto / 2)
-        };
-    }
     renderEditCatSelector();
     document.getElementById('edit-modal').classList.remove('hidden');
 };
@@ -1590,6 +1592,8 @@ function normalizarGastos(arr) {
 
 function partePor(g, usr) {
     if (g.pagador !== 'compartido') return g.pagador === usr ? g.monto : 0;
+    // Si ambas partes son 0 o no están definidas → tratar como 50/50
+    if (!g.parte1 && !g.parte2) return g.monto / 2;
     const p = usr === '1' ? g.parte1 : g.parte2;
     return (p !== undefined && p !== null && p !== '') ? Number(p) : g.monto / 2;
 }
