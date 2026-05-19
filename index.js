@@ -693,10 +693,9 @@ window.abrirPago = function (id, quienPaga) {
     pagoId = id;
 
     const es50  = g.pagador === 'compartido';
-    const mitad = Math.round(g.monto / 2);
 
     document.getElementById('pago-titulo').textContent = es50
-        ? `Pago de ${quienPaga === '1' ? config.nombre1 : config.nombre2} (50/50)`
+        ? `Pago de ${quienPaga === '1' ? config.nombre1 : config.nombre2}`
         : 'Registrar pago';
     document.getElementById('pago-concepto').textContent = g.concepto;
     document.getElementById('pago-quien').classList.toggle('hidden', !es50);
@@ -705,8 +704,9 @@ window.abrirPago = function (id, quienPaga) {
         document.getElementById('pago-btn-u1').textContent = config.nombre1;
         document.getElementById('pago-btn-u2').textContent = config.nombre2;
         seleccionarPagoUsr(quienPaga || usuario || '1');
-        document.getElementById('pago-hint').textContent = `Mitad a pagar: ${fmt(mitad)} de ${fmt(g.monto)} total`;
-        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(mitad);
+        const miParte = partePor(g, quienPaga || '1');
+        document.getElementById('pago-hint').textContent = `Tu parte: ${fmt(miParte)} de ${fmt(g.monto)} total`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(miParte);
     } else {
         document.getElementById('pago-hint').textContent = `Total pendiente: ${fmt(g.monto)}`;
         document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(g.monto);
@@ -729,7 +729,9 @@ window.seleccionarPagoUsr = function (u) {
     });
     const g = gastos.find(x => x.id === pagoId);
     if (g && g.pagador === 'compartido') {
-        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(Math.round(g.monto / 2));
+        const miParte = partePor(g, u);
+        document.getElementById('pago-hint').textContent = `Tu parte: ${fmt(miParte)} de ${fmt(g.monto)} total`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(miParte);
     }
 };
 
@@ -923,12 +925,15 @@ document.getElementById('edit-form').addEventListener('submit', function (e) {
         fecha:     v('edit-fecha'),
         tipo:      document.getElementById('edit-pendiente').checked ? 'pendiente' : 'gasto',
         pagador:   editPag,
-        categoria: editCat
+        categoria: editCat,
+        parte1:    editPag === 'compartido' ? editPartePersonalizada.u1 : undefined,
+        parte2:    editPag === 'compartido' ? editPartePersonalizada.u2 : undefined,
     };
     guardarLocal();
     schedulePush();
     renderTodo();
     cerrarEditar();
+    editPartePersonalizada = { u1: 0, u2: 0 };
 });
 
 // ─── CATEGORÍAS UI ────────────────────────────────────────────────────────────
@@ -1062,12 +1067,12 @@ function renderResumen() {
         if (g.tipo === 'pendiente') {
             if (g.pagador === '1') p1 += m;
             else if (g.pagador === '2') p2 += m;
-            else { p1 += m / 2; p2 += m / 2; }
+            else { p1 += partePor(g, '1'); p2 += partePor(g, '2'); }
             return;
         }
         if (g.pagador === '1') t1 += m;
         else if (g.pagador === '2') t2 += m;
-        else { tc += m; t1 += m / 2; t2 += m / 2; }
+        else { tc += m; t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
     });
 
     document.getElementById('total-general').textContent = fmt(t1 + t2);
@@ -1168,7 +1173,7 @@ function renderHistorial() {
             total += g.monto;
             if (g.pagador === '1')          { t1 += g.monto; }
             else if (g.pagador === '2')     { t2 += g.monto; }
-            else { tc += g.monto; t1 += g.monto / 2; t2 += g.monto / 2; }
+            else { tc += g.monto; t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
         });
 
         const n1 = config?.nombre1 || 'U1';
@@ -1220,9 +1225,15 @@ function renderHistorial() {
 
         // ── Items del mes ─────────────────────────────────────────────────────
         mesItems.forEach(g => {
-            const badge50 = g.pagador === 'compartido'
-                ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
-                : '';
+            const badge50 = (() => {
+                if (g.pagador !== 'compartido') return '';
+                const p1 = partePor(g, '1');
+                const p2 = partePor(g, '2');
+                const igual = Math.abs(p1 - p2) <= 1;
+                return igual
+                    ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(p1)}</span>`
+                    : `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">${esc(config?.nombre1||'U1')}: ${fmt(p1)} · ${esc(config?.nombre2||'U2')}: ${fmt(p2)}</span>`;
+            })();
             lista.innerHTML += `
             <div id="gasto-${g.id}" class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2 mb-2">
                 <div class="flex items-center gap-3 min-w-0">
@@ -1299,7 +1310,7 @@ function renderEstadisticas() {
     gastosPagados.forEach(g => {
         if (g.pagador === '1') t1 += g.monto;
         else if (g.pagador === '2') t2 += g.monto;
-        else { t1 += g.monto / 2; t2 += g.monto / 2; }
+        else { t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
     });
     const maxP = Math.max(t1, t2, 1);
 
@@ -1570,7 +1581,9 @@ function normalizarGastos(arr) {
             monto:     Number(g.monto) || 0,
             pagador:   ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
             tipo:      ['gasto','pendiente','propuesto_1','propuesto_2'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto',
-            categoria: String(g.categoria || '')
+            categoria: String(g.categoria || ''),
+            parte1: (g.parte1 !== undefined && g.parte1 !== '') ? Number(g.parte1) : undefined,
+            parte2: (g.parte2 !== undefined && g.parte2 !== '') ? Number(g.parte2) : undefined,
         }))
         .filter(g => g.id);
 }
