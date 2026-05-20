@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gastos-comunes-v9';
+const CACHE_NAME = 'gastos-comunes-v15';
 const CACHE_TIMEOUT = 5000; // ms before falling back to cache
 
 const STATIC_ASSETS = [
@@ -34,8 +34,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    // Always go network-first for Google Apps Script calls (sync endpoint)
+    // POST a GAS (push de datos): dejar que el navegador lo maneje directamente,
+    // sin timeout ni caché del SW para evitar devolver una respuesta obsoleta.
     if (url.hostname === 'script.google.com') {
+        if (event.request.method === 'POST') return;
         event.respondWith(networkFirst(event.request));
         return;
     }

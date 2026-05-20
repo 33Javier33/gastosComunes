@@ -30,6 +30,8 @@ let editPag = '1';    // payer en modal de edición
 let filtroCategoria = null; // filtro activo por categoría en historial
 let filtroUsuario   = null; // filtro activo por usuario ('1','2','compartido')
 let editCat = '';     // categoría seleccionada en modal editar
+let partePersonalizada     = { u1: 0, u2: 0 };
+let editPartePersonalizada = { u1: 0, u2: 0 };
 let syncTimer     = null;
 let sincroni      = false;
 let pullListo     = false; // impide push antes de que el primer pull complete
@@ -121,7 +123,7 @@ async function pollPeriodico() {
         if (pushEnCola) return;
 
         // Snapshot ligero para detectar cambios reales
-        const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}`;
+        const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}|${g.parte1??''}|${g.parte2??''}`;
         const snapAntes  = gastos.map(snap).sort().join('\n');
 
         const propAntes  = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
@@ -420,6 +422,30 @@ function lanzarApp() {
 document.getElementById('monto').addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
     this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
+    if (pagSel === 'compartido') {
+        partePersonalizada = { u1: 0, u2: 0 };
+        actualizarPanelDivision();
+    }
+});
+
+document.getElementById('div-p1').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    partePersonalizada.u1 = raw;
+    partePersonalizada.u2 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('div-p2').value = new Intl.NumberFormat('es-CL').format(partePersonalizada.u2);
+    validarDivision();
+});
+
+document.getElementById('div-p2').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    partePersonalizada.u2 = raw;
+    partePersonalizada.u1 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('div-p1').value = new Intl.NumberFormat('es-CL').format(partePersonalizada.u1);
+    validarDivision();
 });
 
 function seleccionarPagador(p) {
@@ -433,6 +459,14 @@ function seleccionarPagador(p) {
         btn.classList.toggle('border-outline-variant', !sel);
         btn.classList.toggle('text-on-surface-variant', !sel);
     });
+    const panel = document.getElementById('panel-division');
+    if (p === 'compartido') {
+        panel.classList.remove('hidden');
+        partePersonalizada = { u1: 0, u2: 0 };
+        actualizarPanelDivision();
+    } else {
+        panel.classList.add('hidden');
+    }
     const esPropuesta = !!usuario && pagSel !== usuario;
     const wrap  = document.getElementById('pendiente-wrap');
     const hint  = document.getElementById('propuesta-hint');
@@ -445,6 +479,26 @@ function seleccionarPagador(p) {
     }
 }
 
+function actualizarPanelDivision() {
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    const fmtN  = n => n ? new Intl.NumberFormat('es-CL').format(n) : '';
+    if (!partePersonalizada.u1 && !partePersonalizada.u2) {
+        partePersonalizada.u1 = Math.round(monto / 2);
+        partePersonalizada.u2 = monto - Math.round(monto / 2);
+    }
+    document.getElementById('div-lbl-1').textContent = config?.nombre1 || 'U1';
+    document.getElementById('div-lbl-2').textContent = config?.nombre2 || 'U2';
+    document.getElementById('div-p1').value = fmtN(partePersonalizada.u1);
+    document.getElementById('div-p2').value = fmtN(partePersonalizada.u2);
+    validarDivision();
+}
+
+function validarDivision() {
+    const monto = +document.getElementById('monto').value.replace(/\D/g, '') || 0;
+    const ok    = (partePersonalizada.u1 + partePersonalizada.u2) === monto;
+    document.getElementById('div-alerta').classList.toggle('hidden', ok || monto === 0);
+}
+
 let formCat = ''; // categoría seleccionada en formulario nuevo
 
 document.getElementById('gasto-form').addEventListener('submit', function (e) {
@@ -452,9 +506,15 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
     const monto = +v('monto').replace(/\D/g, '');
     if (!monto) return;
 
+    const btn         = this.querySelector('button[type=submit]');
+    const textoOrig   = btn.innerHTML;
+    btn.disabled      = true;
+    btn.innerHTML     = '<span class="material-symbols-outlined text-sm spinning">sync</span> Guardando…';
+
+    const nuevoId    = Date.now().toString();
     const esPropuesta = !!usuario && pagSel !== usuario;
-    gastos.push({
-        id:        Date.now().toString(),
+    const nuevoGasto = {
+        id:        nuevoId,
         fecha:     v('fecha'),
         concepto:  v('concepto').trim(),
         monto,
@@ -462,23 +522,47 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
         categoria: formCat,
         tipo:      esPropuesta
                      ? `propuesto_${usuario}`
-                     : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto')
-    });
+                     : (document.getElementById('es-pendiente').checked ? 'pendiente' : 'gasto'),
+        parte1:    pagSel === 'compartido' ? partePersonalizada.u1 : undefined,
+        parte2:    pagSel === 'compartido' ? partePersonalizada.u2 : undefined,
+    };
 
+    gastos.push(nuevoGasto);
     guardarLocal();
     schedulePush();
     formCat = '';
     this.reset();
     document.getElementById('fecha').valueAsDate = new Date();
     document.getElementById('es-pendiente').checked = false;
-    document.getElementById('concepto').focus();
+    partePersonalizada = { u1: 0, u2: 0 };
     seleccionarPagador('1');
     renderFormCatSelector();
-    renderTodo();
-    if (esPropuesta) {
-        const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
-        mostrarToast(`Enviado a ${otroNombre} para confirmar`);
-    }
+
+    setTimeout(() => {
+        btn.disabled  = false;
+        btn.innerHTML = textoOrig;
+
+        // Si hay filtro de usuario activo y el nuevo gasto no sería visible, limpiar filtros
+        const esVisible = !filtroUsuario || nuevoGasto.pagador === filtroUsuario;
+        if (!esVisible) { filtroUsuario = null; filtroCategoria = null; }
+
+        renderTodo();
+
+        if (esPropuesta) {
+            const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
+            mostrarToast(`Enviado a ${otroNombre} para confirmar`);
+        }
+
+        // Scroll al nuevo gasto y resaltarlo
+        const prefijo = nuevoGasto.tipo === 'pendiente' ? 'pendiente' : 'gasto';
+        setTimeout(() => {
+            const el = document.getElementById(`${prefijo}-${nuevoId}`);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('gasto-nuevo');
+            setTimeout(() => el.classList.remove('gasto-nuevo'), 2600);
+        }, 80);
+    }, 700);
 });
 
 // ─── ACCIONES SOBRE GASTOS ────────────────────────────────────────────────────
@@ -614,10 +698,9 @@ window.abrirPago = function (id, quienPaga) {
     pagoId = id;
 
     const es50  = g.pagador === 'compartido';
-    const mitad = Math.round(g.monto / 2);
 
     document.getElementById('pago-titulo').textContent = es50
-        ? `Pago de ${quienPaga === '1' ? config.nombre1 : config.nombre2} (50/50)`
+        ? `Pago de ${quienPaga === '1' ? config.nombre1 : config.nombre2}`
         : 'Registrar pago';
     document.getElementById('pago-concepto').textContent = g.concepto;
     document.getElementById('pago-quien').classList.toggle('hidden', !es50);
@@ -626,8 +709,9 @@ window.abrirPago = function (id, quienPaga) {
         document.getElementById('pago-btn-u1').textContent = config.nombre1;
         document.getElementById('pago-btn-u2').textContent = config.nombre2;
         seleccionarPagoUsr(quienPaga || usuario || '1');
-        document.getElementById('pago-hint').textContent = `Mitad a pagar: ${fmt(mitad)} de ${fmt(g.monto)} total`;
-        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(mitad);
+        const miParte = partePor(g, quienPaga || '1');
+        document.getElementById('pago-hint').textContent = `Tu parte: ${fmt(miParte)} de ${fmt(g.monto)} total`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(miParte);
     } else {
         document.getElementById('pago-hint').textContent = `Total pendiente: ${fmt(g.monto)}`;
         document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(g.monto);
@@ -650,7 +734,9 @@ window.seleccionarPagoUsr = function (u) {
     });
     const g = gastos.find(x => x.id === pagoId);
     if (g && g.pagador === 'compartido') {
-        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(Math.round(g.monto / 2));
+        const miParte = partePor(g, u);
+        document.getElementById('pago-hint').textContent = `Tu parte: ${fmt(miParte)} de ${fmt(g.monto)} total`;
+        document.getElementById('pago-monto').value = new Intl.NumberFormat('es-CL').format(miParte);
     }
 };
 
@@ -714,9 +800,9 @@ document.getElementById('pago-monto').addEventListener('input', function () {
 window.eliminar = function (id) {
     const g = gastos.find(x => x.id === id);
     if (!g) return;
-    const modal = document.getElementById('confirm-modal');
+    const modal    = document.getElementById('confirm-modal');
     const concepto = document.getElementById('confirm-modal-concepto');
-    const btn = document.getElementById('confirm-modal-btn');
+    const btn      = document.getElementById('confirm-modal-btn');
     concepto.textContent = `${g.concepto} · ${fmt(g.monto)}`;
     btn.onclick = () => {
         cerrarConfirm();
@@ -744,6 +830,14 @@ window.abrirEditar = function (id) {
     document.getElementById('edit-pendiente').checked = g.tipo === 'pendiente';
     document.getElementById('edit-btn-pag-1').textContent = config.nombre1;
     document.getElementById('edit-btn-pag-2').textContent = config.nombre2;
+    // Fijar partes ANTES de llamar seleccionarEditPagador para que el panel
+    // se rellene con los valores correctos (no con 50/50 por defecto)
+    editPartePersonalizada = g.pagador === 'compartido'
+        ? {
+            u1: (g.parte1 !== undefined && g.parte1 !== 0) ? Number(g.parte1) : Math.round(g.monto / 2),
+            u2: (g.parte2 !== undefined && g.parte2 !== 0) ? Number(g.parte2) : g.monto - Math.round(g.monto / 2)
+          }
+        : { u1: 0, u2: 0 };
     seleccionarEditPagador(g.pagador);
     renderEditCatSelector();
     document.getElementById('edit-modal').classList.remove('hidden');
@@ -761,6 +855,30 @@ window.fondoModal = function (e) {
 document.getElementById('edit-monto').addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
     this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
+    if (editPag === 'compartido') {
+        editPartePersonalizada = { u1: 0, u2: 0 };
+        actualizarEditPanelDivision();
+    }
+});
+
+document.getElementById('edit-div-p1').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    editPartePersonalizada.u1 = raw;
+    editPartePersonalizada.u2 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('edit-div-p2').value = new Intl.NumberFormat('es-CL').format(editPartePersonalizada.u2);
+    validarEditDivision();
+});
+
+document.getElementById('edit-div-p2').addEventListener('input', function () {
+    const raw   = +this.value.replace(/\D/g, '');
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    editPartePersonalizada.u2 = raw;
+    editPartePersonalizada.u1 = Math.max(0, monto - raw);
+    this.value = raw ? new Intl.NumberFormat('es-CL').format(raw) : '';
+    document.getElementById('edit-div-p1').value = new Intl.NumberFormat('es-CL').format(editPartePersonalizada.u1);
+    validarEditDivision();
 });
 
 function seleccionarEditPagador(p) {
@@ -774,6 +892,33 @@ function seleccionarEditPagador(p) {
         btn.classList.toggle('border-outline-variant', !sel);
         btn.classList.toggle('text-on-surface-variant', !sel);
     });
+    const panel = document.getElementById('edit-panel-division');
+    if (p === 'compartido') {
+        panel.classList.remove('hidden');
+        actualizarEditPanelDivision();
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function actualizarEditPanelDivision() {
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    const fmtN  = n => n ? new Intl.NumberFormat('es-CL').format(n) : '';
+    if (!editPartePersonalizada.u1 && !editPartePersonalizada.u2) {
+        editPartePersonalizada.u1 = Math.round(monto / 2);
+        editPartePersonalizada.u2 = monto - Math.round(monto / 2);
+    }
+    document.getElementById('edit-div-lbl-1').textContent = config?.nombre1 || 'U1';
+    document.getElementById('edit-div-lbl-2').textContent = config?.nombre2 || 'U2';
+    document.getElementById('edit-div-p1').value = fmtN(editPartePersonalizada.u1);
+    document.getElementById('edit-div-p2').value = fmtN(editPartePersonalizada.u2);
+    validarEditDivision();
+}
+
+function validarEditDivision() {
+    const monto = +document.getElementById('edit-monto').value.replace(/\D/g, '') || 0;
+    const ok    = (editPartePersonalizada.u1 + editPartePersonalizada.u2) === monto;
+    document.getElementById('edit-div-alerta').classList.toggle('hidden', ok || monto === 0);
 }
 
 document.getElementById('edit-form').addEventListener('submit', function (e) {
@@ -787,12 +932,15 @@ document.getElementById('edit-form').addEventListener('submit', function (e) {
         fecha:     v('edit-fecha'),
         tipo:      document.getElementById('edit-pendiente').checked ? 'pendiente' : 'gasto',
         pagador:   editPag,
-        categoria: editCat
+        categoria: editCat,
+        parte1:    editPag === 'compartido' ? editPartePersonalizada.u1 : undefined,
+        parte2:    editPag === 'compartido' ? editPartePersonalizada.u2 : undefined,
     };
     guardarLocal();
     schedulePush();
     renderTodo();
     cerrarEditar();
+    editPartePersonalizada = { u1: 0, u2: 0 };
 });
 
 // ─── CATEGORÍAS UI ────────────────────────────────────────────────────────────
@@ -926,12 +1074,12 @@ function renderResumen() {
         if (g.tipo === 'pendiente') {
             if (g.pagador === '1') p1 += m;
             else if (g.pagador === '2') p2 += m;
-            else { p1 += m / 2; p2 += m / 2; }
+            else { p1 += partePor(g, '1'); p2 += partePor(g, '2'); }
             return;
         }
         if (g.pagador === '1') t1 += m;
         else if (g.pagador === '2') t2 += m;
-        else { tc += m; t1 += m / 2; t2 += m / 2; }
+        else { tc += m; t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
     });
 
     document.getElementById('total-general').textContent = fmt(t1 + t2);
@@ -972,7 +1120,7 @@ function renderPendientes() {
                </button>`;
 
         lista.innerHTML += `
-        <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-sm">
+        <div id="pendiente-${g.id}" class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 border-tertiary shadow-sm">
             <div class="flex justify-between items-start">
                 <div>
                     <p class="font-bold text-on-surface">${esc(g.concepto)}</p>
@@ -1032,7 +1180,7 @@ function renderHistorial() {
             total += g.monto;
             if (g.pagador === '1')          { t1 += g.monto; }
             else if (g.pagador === '2')     { t2 += g.monto; }
-            else { tc += g.monto; t1 += g.monto / 2; t2 += g.monto / 2; }
+            else { tc += g.monto; t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
         });
 
         const n1 = config?.nombre1 || 'U1';
@@ -1084,11 +1232,17 @@ function renderHistorial() {
 
         // ── Items del mes ─────────────────────────────────────────────────────
         mesItems.forEach(g => {
-            const badge50 = g.pagador === 'compartido'
-                ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(g.monto / 2)}</span>`
-                : '';
+            const badge50 = (() => {
+                if (g.pagador !== 'compartido') return '';
+                const p1 = partePor(g, '1');
+                const p2 = partePor(g, '2');
+                const igual = Math.abs(p1 - p2) <= 1;
+                return igual
+                    ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(p1)}</span>`
+                    : `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">${esc(config?.nombre1||'U1')}: ${fmt(p1)} · ${esc(config?.nombre2||'U2')}: ${fmt(p2)}</span>`;
+            })();
             lista.innerHTML += `
-            <div class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2 mb-2">
+            <div id="gasto-${g.id}" class="bg-surface-container-lowest p-3 rounded-xl border border-outline-variant flex items-center justify-between gap-2 mb-2">
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center shrink-0">
                         ${iconoCat(g)}
@@ -1163,7 +1317,7 @@ function renderEstadisticas() {
     gastosPagados.forEach(g => {
         if (g.pagador === '1') t1 += g.monto;
         else if (g.pagador === '2') t2 += g.monto;
-        else { t1 += g.monto / 2; t2 += g.monto / 2; }
+        else { t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
     });
     const maxP = Math.max(t1, t2, 1);
 
@@ -1355,9 +1509,29 @@ async function pullSilencioso() {
 window.syncManual = async function () {
     if (sincroni) return;
     setSyncUI(true);
+    let pushFalló = false;
     try {
-        // Solo pull: el Sheet es la fuente de verdad.
-        // Los cambios locales ya se subieron vía schedulePush al hacerlos.
+        // Si hay cambios locales pendientes, subirlos primero para no perderlos en el pull
+        if (pushEnCola) {
+            clearTimeout(syncTimer);
+            syncTimer = null;
+            try {
+                await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'push', gastos, config })
+                });
+                pendientePush = false;
+                localStorage.removeItem('ss_pendiente_push');
+            } catch {
+                // Push falló: reprogramar el debounce y abortar el pull
+                // para no sobreescribir los datos locales con el Sheet desactualizado
+                pushFalló = true;
+                syncTimer = setTimeout(pushASheet, 3000);
+                mostrarToast('Sin conexión – reintentando en breve…');
+                return;
+            }
+        }
         const r = await pullDeSheet();
         if (r.config) {
             config = r.config;
@@ -1371,6 +1545,7 @@ window.syncManual = async function () {
     } catch (e) {
         console.warn('[GastosComunes] Sync falló:', e);
     } finally {
+        if (!pushFalló) pushEnCola = false;
         setSyncUI(false);
     }
 };
@@ -1422,9 +1597,19 @@ function normalizarGastos(arr) {
             monto:     Number(g.monto) || 0,
             pagador:   ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
             tipo:      ['gasto','pendiente','propuesto_1','propuesto_2'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto',
-            categoria: String(g.categoria || '')
+            categoria: String(g.categoria || ''),
+            parte1: (g.parte1 !== undefined && g.parte1 !== '') ? Number(g.parte1) : undefined,
+            parte2: (g.parte2 !== undefined && g.parte2 !== '') ? Number(g.parte2) : undefined,
         }))
         .filter(g => g.id);
+}
+
+function partePor(g, usr) {
+    if (g.pagador !== 'compartido') return g.pagador === usr ? g.monto : 0;
+    // Si ambas partes son 0 o no están definidas → tratar como 50/50
+    if (!g.parte1 && !g.parte2) return g.monto / 2;
+    const p = usr === '1' ? g.parte1 : g.parte2;
+    return (p !== undefined && p !== null && p !== '') ? Number(p) : g.monto / 2;
 }
 
 function extraerFecha(v) {

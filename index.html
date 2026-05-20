@@ -308,7 +308,22 @@
                         <button type="button" id="btn-pag-2" onclick="seleccionarPagador('2')"
                             class="h-10 text-xs font-bold rounded-xl border border-outline-variant text-on-surface-variant">U2</button>
                         <button type="button" id="btn-pag-compartido" onclick="seleccionarPagador('compartido')"
-                            class="h-10 text-xs font-bold rounded-xl border border-outline-variant text-on-surface-variant">50/50</button>
+                            class="h-10 text-xs font-bold rounded-xl border border-outline-variant text-on-surface-variant">Dividir</button>
+                    </div>
+                    <!-- Panel división personalizada -->
+                    <div id="panel-division" class="hidden mt-3 p-3 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+                        <p class="text-[10px] font-bold text-primary uppercase tracking-wide">¿Cuánto paga cada uno?</p>
+                        <div class="flex items-center gap-2">
+                            <span id="div-lbl-1" class="text-xs font-bold text-on-surface-variant w-20 shrink-0 truncate">U1</span>
+                            <input id="div-p1" type="text" inputmode="numeric" placeholder="$0"
+                                class="flex-1 h-9 px-3 rounded-lg border border-outline-variant focus:border-primary outline-none text-sm"/>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span id="div-lbl-2" class="text-xs font-bold text-on-surface-variant w-20 shrink-0 truncate">U2</span>
+                            <input id="div-p2" type="text" inputmode="numeric" placeholder="$0"
+                                class="flex-1 h-9 px-3 rounded-lg border border-outline-variant focus:border-primary outline-none text-sm"/>
+                        </div>
+                        <p id="div-alerta" class="hidden text-[10px] font-bold text-error">⚠ Las partes no suman el total</p>
                     </div>
                 </div>
                 <div id="pendiente-wrap" class="flex items-center gap-3">
@@ -611,7 +626,22 @@
                     <button type="button" id="edit-btn-pag-2" onclick="seleccionarEditPagador('2')"
                         class="h-10 text-xs font-bold rounded-xl border">U2</button>
                     <button type="button" id="edit-btn-pag-compartido" onclick="seleccionarEditPagador('compartido')"
-                        class="h-10 text-xs font-bold rounded-xl border">50/50</button>
+                        class="h-10 text-xs font-bold rounded-xl border">Dividir</button>
+                </div>
+                <!-- Panel división personalizada (edición) -->
+                <div id="edit-panel-division" class="hidden mt-3 p-3 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+                    <p class="text-[10px] font-bold text-primary uppercase tracking-wide">¿Cuánto paga cada uno?</p>
+                    <div class="flex items-center gap-2">
+                        <span id="edit-div-lbl-1" class="text-xs font-bold text-on-surface-variant w-20 shrink-0 truncate">U1</span>
+                        <input id="edit-div-p1" type="text" inputmode="numeric" placeholder="$0"
+                            class="flex-1 h-9 px-3 rounded-lg border border-outline-variant focus:border-primary outline-none text-sm"/>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="edit-div-lbl-2" class="text-xs font-bold text-on-surface-variant w-20 shrink-0 truncate">U2</span>
+                        <input id="edit-div-p2" type="text" inputmode="numeric" placeholder="$0"
+                            class="flex-1 h-9 px-3 rounded-lg border border-outline-variant focus:border-primary outline-none text-sm"/>
+                    </div>
+                    <p id="edit-div-alerta" class="hidden text-[10px] font-bold text-error">⚠ Las partes no suman el total</p>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -635,7 +665,7 @@
     </div>
 </div>
 
-<!-- Modal de confirmación de borrado -->
+<!-- Modal confirmación borrado -->
 <div id="confirm-modal" onclick="if(event.target===this)cerrarConfirm()" class="hidden fixed inset-0 z-[200] flex items-end justify-center bg-black/50 backdrop-blur-sm">
     <div class="w-full max-w-lg bg-surface rounded-t-2xl shadow-xl p-6 space-y-4">
         <div class="flex items-center gap-3">
@@ -643,7 +673,7 @@
                 <span class="material-symbols-outlined text-error">delete_forever</span>
             </div>
             <div>
-                <p class="font-label-md font-bold text-on-surface">¿Eliminar movimiento?</p>
+                <p class="font-bold text-on-surface">¿Eliminar movimiento?</p>
                 <p id="confirm-modal-concepto" class="text-xs text-on-surface-variant truncate"></p>
             </div>
         </div>
