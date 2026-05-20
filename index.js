@@ -123,7 +123,7 @@ async function pollPeriodico() {
         if (pushEnCola) return;
 
         // Snapshot ligero para detectar cambios reales
-        const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}`;
+        const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}|${g.parte1??''}|${g.parte2??''}`;
         const snapAntes  = gastos.map(snap).sort().join('\n');
 
         const propAntes  = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
@@ -541,6 +541,11 @@ document.getElementById('gasto-form').addEventListener('submit', function (e) {
     setTimeout(() => {
         btn.disabled  = false;
         btn.innerHTML = textoOrig;
+
+        // Si hay filtro de usuario activo y el nuevo gasto no sería visible, limpiar filtros
+        const esVisible = !filtroUsuario || nuevoGasto.pagador === filtroUsuario;
+        if (!esVisible) { filtroUsuario = null; filtroCategoria = null; }
+
         renderTodo();
 
         if (esPropuesta) {
@@ -1504,19 +1509,28 @@ async function pullSilencioso() {
 window.syncManual = async function () {
     if (sincroni) return;
     setSyncUI(true);
+    let pushFalló = false;
     try {
-        // Si hay cambios locales pendientes de subir, subirlos primero
-        // (evita que el pull sobreescriba borrados o ediciones recientes)
+        // Si hay cambios locales pendientes, subirlos primero para no perderlos en el pull
         if (pushEnCola) {
             clearTimeout(syncTimer);
             syncTimer = null;
-            await fetch(GAS_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify({ action: 'push', gastos, config })
-            });
-            pendientePush = false;
-            localStorage.removeItem('ss_pendiente_push');
+            try {
+                await fetch(GAS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'push', gastos, config })
+                });
+                pendientePush = false;
+                localStorage.removeItem('ss_pendiente_push');
+            } catch {
+                // Push falló: reprogramar el debounce y abortar el pull
+                // para no sobreescribir los datos locales con el Sheet desactualizado
+                pushFalló = true;
+                syncTimer = setTimeout(pushASheet, 3000);
+                mostrarToast('Sin conexión – reintentando en breve…');
+                return;
+            }
         }
         const r = await pullDeSheet();
         if (r.config) {
@@ -1531,7 +1545,7 @@ window.syncManual = async function () {
     } catch (e) {
         console.warn('[GastosComunes] Sync falló:', e);
     } finally {
-        pushEnCola = false;
+        if (!pushFalló) pushEnCola = false;
         setSyncUI(false);
     }
 };
