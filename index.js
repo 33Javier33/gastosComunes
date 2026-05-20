@@ -414,7 +414,7 @@ function lanzarApp() {
     renderTodo();
     renderGestionCats();
     iniciarTimerSesion();
-    iniciarPolling();
+    iniciarPolling(true); // pull inmediato para que device 2 vea datos del otro dispositivo
 }
 
 // ─── AGREGAR GASTO ────────────────────────────────────────────────────────────
