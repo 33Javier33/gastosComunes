@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gastos-comunes-v15';
+const CACHE_NAME = 'gastos-comunes-v16';
 const CACHE_TIMEOUT = 5000; // ms before falling back to cache
 
 const STATIC_ASSETS = [
@@ -34,13 +34,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
-    // POST a GAS (push de datos): dejar que el navegador lo maneje directamente,
-    // sin timeout ni caché del SW para evitar devolver una respuesta obsoleta.
-    if (url.hostname === 'script.google.com') {
-        if (event.request.method === 'POST') return;
-        event.respondWith(networkFirst(event.request));
-        return;
-    }
+    // GAS (GET y POST): el navegador los maneja directamente.
+    // No cacheamos respuestas de GAS — evita que device 2 vea datos viejos
+    // y que un cold-start lento devuelva una respuesta obsoleta del caché.
+    if (url.hostname === 'script.google.com') return;
 
     // Network-first for navigation requests so updates propagate
     if (event.request.mode === 'navigate') {
