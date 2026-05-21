@@ -126,8 +126,9 @@ async function pollPeriodico() {
         const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}|${g.parte1??''}|${g.parte2??''}`;
         const snapAntes  = gastos.map(snap).sort().join('\n');
 
-        const propAntes  = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
-        const cobrosAntes = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
+        const propAntes      = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const cobrosAntes    = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length; // yo debo
+        const prestamosAntes = gastos.filter(g => g.tipo === 'cobro' && g.pagador === usuario).length; // me deben
 
         config = r.config;
         gastos = normalizarGastos(r.gastos || []);
@@ -141,14 +142,18 @@ async function pollPeriodico() {
 
         renderTodo();
 
-        const propAhora   = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
-        const cobrosAhora = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
+        const propAhora      = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const cobrosAhora    = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
+        const prestamosAhora = gastos.filter(g => g.tipo === 'cobro' && g.pagador === usuario).length;
         if (propAhora > propAntes) {
             const n = propAhora - propAntes;
             mostrarToast(`¡Tienes ${n} movimiento${n > 1 ? 's' : ''} por confirmar!`);
         } else if (cobrosAhora > cobrosAntes) {
-            const n = cobrosAhora - cobrosAntes;
-            mostrarToast(`¡${n} cobro${n > 1 ? 's' : ''} nuevo${n > 1 ? 's' : ''} pendiente${n > 1 ? 's' : ''}!`);
+            // El otro me pidió dinero prestado → yo debo
+            mostrarToast(`¡${config['nombre' + (usuario === '1' ? '2' : '1')]} te pidió dinero prestado!`);
+        } else if (prestamosAhora > prestamosAntes) {
+            // Alguien marcó que me pagó → yo cobré
+            mostrarToast('Datos actualizados');
         } else {
             mostrarToast('Datos actualizados');
         }
@@ -1815,7 +1820,7 @@ window.guardarCobro = function () {
         fecha:     new Date().toISOString().substring(0, 10),
         concepto,
         monto,
-        pagador:   usuario,
+        pagador:   usuario === '1' ? '2' : '1', // quien presta (acreedor)
         tipo:      'cobro',
         categoria: '',
     });
@@ -1824,7 +1829,8 @@ window.guardarCobro = function () {
     schedulePush();
     cerrarCrearCobro();
     renderTodo();
-    mostrarToast(`Cobro enviado a ${config['nombre' + (usuario === '1' ? '2' : '1')]}`);
+    const acreedorNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
+    mostrarToast(`Le pediste ${ fmt(monto) } prestado a ${acreedorNombre}`);
 };
 
 window.pagarCobro = function (id) {
@@ -1836,11 +1842,21 @@ window.pagarCobro = function (id) {
     const btn = document.getElementById('cobro-pagar-btn');
     btn.onclick = () => {
         cerrarPagarCobro();
+        // Registrar el pago como gasto solo del deudor (quien devuelve el dinero)
+        gastos.push({
+            id:        (Date.now() + 1).toString(),
+            fecha:     new Date().toISOString().substring(0, 10),
+            concepto:  cobro.concepto,
+            monto:     cobro.monto,
+            pagador:   usuario, // el deudor (usuario actual) pagó
+            tipo:      'gasto',
+            categoria: cobro.categoria || '',
+        });
         gastos = gastos.filter(x => x.id !== id);
         guardarLocal();
         schedulePush();
         renderTodo();
-        mostrarToast(`Pago confirmado a ${pedidorNombre}`);
+        mostrarToast(`Pagado a ${pedidorNombre} — registrado en tu historial`);
     };
     document.getElementById('cobro-pagar-modal').classList.remove('hidden');
 };
