@@ -127,6 +127,7 @@ async function pollPeriodico() {
         const snapAntes  = gastos.map(snap).sort().join('\n');
 
         const propAntes  = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const cobrosAntes = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
 
         config = r.config;
         gastos = normalizarGastos(r.gastos || []);
@@ -140,10 +141,14 @@ async function pollPeriodico() {
 
         renderTodo();
 
-        const propAhora = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const propAhora   = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const cobrosAhora = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
         if (propAhora > propAntes) {
             const n = propAhora - propAntes;
             mostrarToast(`¡Tienes ${n} movimiento${n > 1 ? 's' : ''} por confirmar!`);
+        } else if (cobrosAhora > cobrosAntes) {
+            const n = cobrosAhora - cobrosAntes;
+            mostrarToast(`¡${n} cobro${n > 1 ? 's' : ''} nuevo${n > 1 ? 's' : ''} pendiente${n > 1 ? 's' : ''}!`);
         } else {
             mostrarToast('Datos actualizados');
         }
@@ -426,6 +431,11 @@ document.getElementById('monto').addEventListener('input', function () {
         partePersonalizada = { u1: 0, u2: 0 };
         actualizarPanelDivision();
     }
+});
+
+document.getElementById('cobro-monto').addEventListener('input', function () {
+    const v = this.value.replace(/\D/g, '');
+    this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
 });
 
 document.getElementById('div-p1').addEventListener('input', function () {
@@ -1058,6 +1068,7 @@ function catBadge(catId) {
 function renderTodo() {
     renderResumen();
     renderPropuestos();
+    renderCobros();
     renderPendientes();
     renderHistorial();
     renderFiltroUsuario();
@@ -1069,7 +1080,7 @@ function renderTodo() {
 function renderResumen() {
     let t1 = 0, t2 = 0, tc = 0, p1 = 0, p2 = 0;
     gastos.forEach(g => {
-        if (g.tipo === 'propuesto_1' || g.tipo === 'propuesto_2') return;
+        if (g.tipo === 'propuesto_1' || g.tipo === 'propuesto_2' || g.tipo === 'cobro') return;
         const m = g.monto;
         if (g.tipo === 'pendiente') {
             if (g.pagador === '1') p1 += m;
@@ -1596,7 +1607,7 @@ function normalizarGastos(arr) {
             concepto:  String(g.concepto || ''),
             monto:     Number(g.monto) || 0,
             pagador:   ['1','2','compartido'].includes(String(g.pagador)) ? String(g.pagador) : '1',
-            tipo:      ['gasto','pendiente','propuesto_1','propuesto_2'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto',
+            tipo:      ['gasto','pendiente','propuesto_1','propuesto_2','cobro'].includes(String(g.tipo)) ? String(g.tipo) : 'gasto',
             categoria: String(g.categoria || ''),
             parte1: (g.parte1 !== undefined && g.parte1 !== '') ? Number(g.parte1) : undefined,
             parte2: (g.parte2 !== undefined && g.parte2 !== '') ? Number(g.parte2) : undefined,
@@ -1699,11 +1710,161 @@ window.confirmarPropuesto = function (id, tipo) {
 };
 
 window.rechazarPropuesto = function (id) {
-    if (!confirm('¿Rechazar este movimiento?')) return;
-    gastos = gastos.filter(x => x.id !== id);
+    const g = gastos.find(x => x.id === id);
+    if (!g) return;
+    const modal    = document.getElementById('confirm-modal');
+    const concepto = document.getElementById('confirm-modal-concepto');
+    const btn      = document.getElementById('confirm-modal-btn');
+    concepto.textContent = `${g.concepto} · ${fmt(g.monto)}`;
+    btn.onclick = () => {
+        cerrarConfirm();
+        gastos = gastos.filter(x => x.id !== id);
+        guardarLocal();
+        schedulePush();
+        renderTodo();
+        mostrarToast('Movimiento rechazado');
+    };
+    modal.classList.remove('hidden');
+};
+
+// ─── COBROS (solicitudes de dinero) ──────────────────────────────────────────
+
+function renderCobros() {
+    const seccion = document.getElementById('seccion-cobros');
+    if (!seccion || !usuario) return;
+
+    const cobros  = gastos.filter(g => g.tipo === 'cobro').sort(porFecha);
+    const badge   = document.getElementById('badge-cobros');
+    const lista   = document.getElementById('lista-cobros');
+    const vacio   = document.getElementById('vacio-cobros');
+
+    const queDebo = cobros.filter(g => g.pagador !== usuario);
+    if (badge) {
+        badge.textContent = queDebo.length || '';
+        badge.classList.toggle('hidden', queDebo.length === 0);
+    }
+
+    lista.innerHTML = '';
+    if (cobros.length === 0) {
+        if (vacio) vacio.classList.remove('hidden');
+        return;
+    }
+    if (vacio) vacio.classList.add('hidden');
+
+    cobros.forEach(g => {
+        const yoSolicite    = g.pagador === usuario;
+        const deudorNum     = g.pagador === '1' ? '2' : '1';
+        const deudorNombre  = esc(config['nombre' + deudorNum]);
+        const pedidorNombre = esc(config['nombre' + g.pagador]);
+
+        lista.innerHTML += `
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border-l-4 ${yoSolicite ? 'border-secondary' : 'border-error'} shadow-sm">
+            <div class="flex justify-between items-start mb-2">
+                <div class="min-w-0 mr-3">
+                    <p class="font-bold text-on-surface truncate">${esc(g.concepto)}</p>
+                    <p class="text-xs text-on-surface-variant">${fmtFecha(g.fecha)}</p>
+                    <p class="text-xs font-bold mt-0.5 ${yoSolicite ? 'text-secondary' : 'text-error'}">
+                        ${yoSolicite ? `${deudorNombre} te debe esto` : `Le debes a ${pedidorNombre}`}
+                    </p>
+                </div>
+                <span class="font-bold text-headline-md shrink-0">${fmt(g.monto)}</span>
+            </div>
+            <div class="flex gap-2">
+                ${!yoSolicite
+                    ? `<button onclick="pagarCobro('${g.id}')"
+                           class="flex-1 h-9 bg-secondary text-on-secondary text-xs font-bold rounded-lg flex items-center justify-center gap-1 active:scale-95">
+                           <span class="material-symbols-outlined text-sm">payments</span>Marcar pagado
+                       </button>`
+                    : `<span class="flex-1 text-xs text-on-surface-variant italic self-center">Esperando pago…</span>`}
+                <button onclick="eliminarCobro('${g.id}')"
+                    class="w-9 h-9 border border-outline-variant text-on-surface-variant rounded-lg flex items-center justify-center active:scale-95 shrink-0">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>
+            </div>
+        </div>`;
+    });
+}
+
+window.abrirCrearCobro = function () {
+    const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
+    document.getElementById('cobro-modal-subtitulo').textContent = `Le pedirás dinero a ${otroNombre}.`;
+    document.getElementById('cobro-concepto').value = '';
+    document.getElementById('cobro-monto').value = '';
+    document.getElementById('cobro-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('cobro-concepto').focus(), 120);
+};
+
+window.cerrarCrearCobro = function () {
+    document.getElementById('cobro-modal').classList.add('hidden');
+};
+
+window.guardarCobro = function () {
+    const concEl  = document.getElementById('cobro-concepto');
+    const montoEl = document.getElementById('cobro-monto');
+    const concepto = concEl.value.trim();
+    const monto    = parseInt(montoEl.value.replace(/\D/g, ''), 10);
+
+    concEl.classList.remove('border-error');
+    montoEl.classList.remove('border-error');
+
+    if (!concepto) { concEl.classList.add('border-error'); concEl.focus(); return; }
+    if (!monto || monto <= 0) { montoEl.classList.add('border-error'); montoEl.focus(); return; }
+
+    gastos.push({
+        id:        Date.now().toString(),
+        fecha:     new Date().toISOString().substring(0, 10),
+        concepto,
+        monto,
+        pagador:   usuario,
+        tipo:      'cobro',
+        categoria: '',
+    });
+
     guardarLocal();
     schedulePush();
+    cerrarCrearCobro();
     renderTodo();
+    mostrarToast(`Cobro enviado a ${config['nombre' + (usuario === '1' ? '2' : '1')]}`);
+};
+
+window.pagarCobro = function (id) {
+    const cobro = gastos.find(x => x.id === id);
+    if (!cobro) return;
+    const pedidorNombre = config['nombre' + cobro.pagador];
+    document.getElementById('cobro-pagar-detalle').textContent =
+        `${cobro.concepto} · ${fmt(cobro.monto)} → ${pedidorNombre}`;
+    const btn = document.getElementById('cobro-pagar-btn');
+    btn.onclick = () => {
+        cerrarPagarCobro();
+        gastos = gastos.filter(x => x.id !== id);
+        guardarLocal();
+        schedulePush();
+        renderTodo();
+        mostrarToast(`Pago confirmado a ${pedidorNombre}`);
+    };
+    document.getElementById('cobro-pagar-modal').classList.remove('hidden');
+};
+
+window.cerrarPagarCobro = function () {
+    document.getElementById('cobro-pagar-modal').classList.add('hidden');
+};
+
+window.eliminarCobro = function (id) {
+    const cobro = gastos.find(x => x.id === id);
+    if (!cobro) return;
+    const modal    = document.getElementById('confirm-modal');
+    const concepto = document.getElementById('confirm-modal-concepto');
+    const btn      = document.getElementById('confirm-modal-btn');
+    concepto.textContent = `${cobro.concepto} · ${fmt(cobro.monto)}`;
+    btn.onclick = () => {
+        cerrarConfirm();
+        gastos = gastos.filter(x => x.id !== id);
+        guardarLocal();
+        schedulePush();
+        renderTodo();
+        mostrarToast('Cobro eliminado');
+    };
+    modal.classList.remove('hidden');
 };
 
 // ─── OFFLINE / RECONEXIÓN ─────────────────────────────────────────────────────

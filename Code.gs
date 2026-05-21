@@ -93,7 +93,7 @@ function leerGastos() {
             obj.parte2 = (obj.parte2 !== '' && obj.parte2 !== undefined) ? Number(obj.parte2) : undefined;
             // Validar pagador y tipo para filas editadas manualmente
             if (!['1', '2', 'compartido'].includes(String(obj.pagador))) obj.pagador = '1';
-            if (!['gasto', 'pendiente', 'propuesto_1', 'propuesto_2'].includes(String(obj.tipo))) obj.tipo = 'gasto';
+            if (!['gasto', 'pendiente', 'propuesto_1', 'propuesto_2', 'cobro'].includes(String(obj.tipo))) obj.tipo = 'gasto';
             return obj;
         })
         .filter(g => g.id); // ignorar filas sin ID
