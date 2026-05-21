@@ -433,7 +433,7 @@ document.getElementById('monto').addEventListener('input', function () {
     }
 });
 
-document.getElementById('cobro-monto').addEventListener('input', function () {
+document.getElementById('cobro-monto')?.addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
     this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
 });
@@ -1906,6 +1906,12 @@ function mostrarToast(msg) {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').catch(e => console.warn('[SW]', e));
+    });
+    navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data?.type === 'SW_UPDATED') {
+            mostrarToast('Actualizando a nueva versión…');
+            setTimeout(() => window.location.reload(), 1500);
+        }
     });
 }
 
