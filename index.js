@@ -1790,12 +1790,30 @@ function renderCobros() {
     });
 }
 
-window.abrirCrearCobro = function () {
+let cobromModo = 'pedido'; // 'pedido' = yo pedí prestado | 'prestamo' = yo presté
+
+window.setCobromModo = function (modo) {
+    cobromModo = modo;
     const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
-    document.getElementById('cobro-modal-subtitulo').textContent = `Le pedirás dinero a ${otroNombre}.`;
+    const activo   = 'h-9 text-xs font-bold rounded-lg transition-all bg-primary text-on-primary';
+    const inactivo = 'h-9 text-xs font-bold rounded-lg transition-all text-on-surface-variant';
+    document.getElementById('cobro-modo-pedido').className   = modo === 'pedido'   ? activo : inactivo;
+    document.getElementById('cobro-modo-prestamo').className = modo === 'prestamo' ? activo : inactivo;
+    if (modo === 'pedido') {
+        document.getElementById('cobro-modal-titulo').textContent    = 'Pedí prestado';
+        document.getElementById('cobro-modal-subtitulo').textContent = `Le pediste dinero a ${otroNombre} — vos debés.`;
+    } else {
+        document.getElementById('cobro-modal-titulo').textContent    = 'Presté dinero';
+        document.getElementById('cobro-modal-subtitulo').textContent = `${otroNombre} te debe este dinero.`;
+    }
+};
+
+window.abrirCrearCobro = function () {
+    cobromModo = 'pedido';
     document.getElementById('cobro-concepto').value = '';
     document.getElementById('cobro-monto').value = '';
     document.getElementById('cobro-modal').classList.remove('hidden');
+    setCobromModo('pedido');
     setTimeout(() => document.getElementById('cobro-concepto').focus(), 120);
 };
 
@@ -1815,12 +1833,17 @@ window.guardarCobro = function () {
     if (!concepto) { concEl.classList.add('border-error'); concEl.focus(); return; }
     if (!monto || monto <= 0) { montoEl.classList.add('border-error'); montoEl.focus(); return; }
 
+    const otroNum = usuario === '1' ? '2' : '1';
+    // 'pedido': yo pedí prestado → el otro es el acreedor (pagador = otro)
+    // 'prestamo': yo presté → yo soy el acreedor (pagador = yo)
+    const acreedor = cobromModo === 'pedido' ? otroNum : usuario;
+
     gastos.push({
         id:        Date.now().toString(),
         fecha:     new Date().toISOString().substring(0, 10),
         concepto,
         monto,
-        pagador:   usuario === '1' ? '2' : '1', // quien presta (acreedor)
+        pagador:   acreedor,
         tipo:      'cobro',
         categoria: '',
     });
@@ -1829,8 +1852,11 @@ window.guardarCobro = function () {
     schedulePush();
     cerrarCrearCobro();
     renderTodo();
-    const acreedorNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
-    mostrarToast(`Le pediste ${ fmt(monto) } prestado a ${acreedorNombre}`);
+    const otroNombre = config['nombre' + otroNum];
+    const toastMsg = cobromModo === 'pedido'
+        ? `Le pediste ${fmt(monto)} prestado a ${otroNombre}`
+        : `Registraste que ${otroNombre} te debe ${fmt(monto)}`;
+    mostrarToast(toastMsg);
 };
 
 window.pagarCobro = function (id) {

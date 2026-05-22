@@ -716,12 +716,23 @@
                     <span class="material-symbols-outlined text-tertiary">receipt_long</span>
                 </div>
                 <div>
-                    <p class="font-bold text-on-surface">Nuevo cobro</p>
+                    <p id="cobro-modal-titulo" class="font-bold text-on-surface">Nuevo cobro</p>
                     <p id="cobro-modal-subtitulo" class="text-xs text-on-surface-variant"></p>
                 </div>
             </div>
             <button onclick="cerrarCrearCobro()" class="w-8 h-8 flex items-center justify-center rounded-full active:bg-surface-variant active:scale-95">
                 <span class="material-symbols-outlined text-on-surface-variant">close</span>
+            </button>
+        </div>
+        <!-- Selector de modo -->
+        <div class="grid grid-cols-2 gap-1 bg-surface-container rounded-xl p-1">
+            <button type="button" id="cobro-modo-pedido" onclick="setCobromModo('pedido')"
+                class="h-9 text-xs font-bold rounded-lg transition-all bg-primary text-on-primary">
+                Pedí prestado
+            </button>
+            <button type="button" id="cobro-modo-prestamo" onclick="setCobromModo('prestamo')"
+                class="h-9 text-xs font-bold rounded-lg transition-all text-on-surface-variant">
+                Presté dinero
             </button>
         </div>
         <div class="space-y-3">
@@ -743,7 +754,7 @@
             </button>
             <button onclick="guardarCobro()"
                 class="flex-1 h-11 bg-tertiary text-on-tertiary font-bold rounded-xl active:scale-95 transition-transform flex items-center justify-center gap-2">
-                <span class="material-symbols-outlined text-sm">send</span>Enviar cobro
+                <span class="material-symbols-outlined text-sm">send</span>Registrar
             </button>
         </div>
     </div>
