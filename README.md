@@ -135,6 +135,16 @@ Se puede agregar, editar o borrar filas directamente en la hoja **Gastos**. Los 
 
 ## Changelog
 
+### v20 — Cobros saldados visibles en historial para ambos usuarios
+- Cuando el deudor marca un cobro como pagado, el gasto queda registrado como `compartido` con la parte del deudor al monto completo y la parte del acreedor en $0. Así ambos usuarios ven el movimiento en el historial (en el filtro "compartido" o "todos").
+- El badge del historial identifica estos movimientos con el label "↩ Cobro · [nombre]: $monto" en color terciario para distinguirlos de los gastos compartidos normales.
+
+### v19 — Ayuda contextual y README completos
+- Nueva sección de ayuda para Cobros/préstamos y Categorías.
+- Ayudas actualizadas para división personalizada, pendientes compartidos y sincronización.
+- Botón ? añadido al header de la sección Cobros.
+- README completo con features, guía de setup, esquema de Sheets y changelog.
+
 ### v18 — División personalizada en totales y pendientes
 - Corregido: el resumen mensual del historial (filtro "50/50") ahora muestra los montos reales de cada persona según la división configurada, no siempre el 50/50.
 - Corregido: el badge en pendientes compartidos con división personalizada muestra el monto de cada usuario.

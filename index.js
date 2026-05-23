@@ -1315,6 +1315,11 @@ function renderHistorial() {
                 if (g.pagador !== 'compartido') return '';
                 const p1 = partePor(g, '1');
                 const p2 = partePor(g, '2');
+                // Cobro saldado: una parte es 0 (deudor pagó, acreedor recibió)
+                if (p1 === 0 || p2 === 0) {
+                    const nombre = p1 > 0 ? esc(config?.nombre1||'U1') : esc(config?.nombre2||'U2');
+                    return `<span class="text-[10px] text-tertiary font-bold bg-tertiary/10 px-2 py-0.5 rounded">↩ Cobro · ${nombre}: ${fmt(Math.max(p1,p2))}</span>`;
+                }
                 const igual = Math.abs(p1 - p2) <= 1;
                 return igual
                     ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">c/u: ${fmt(p1)}</span>`
@@ -1931,21 +1936,26 @@ window.pagarCobro = function (id) {
     const btn = document.getElementById('cobro-pagar-btn');
     btn.onclick = () => {
         cerrarPagarCobro();
-        // Registrar el pago como gasto solo del deudor (quien devuelve el dinero)
+        // El gasto se registra como compartido con partes asimétricas:
+        // el deudor (usuario) carga el monto completo, el acreedor carga 0.
+        // Así ambos usuarios ven el movimiento en el historial.
+        const acreedor = cobro.pagador; // '1' o '2'
         gastos.push({
             id:        (Date.now() + 1).toString(),
             fecha:     new Date().toISOString().substring(0, 10),
             concepto:  cobro.concepto,
             monto:     cobro.monto,
-            pagador:   usuario, // el deudor (usuario actual) pagó
+            pagador:   'compartido',
             tipo:      'gasto',
             categoria: cobro.categoria || '',
+            parte1:    usuario === '1' ? cobro.monto : 0,
+            parte2:    usuario === '2' ? cobro.monto : 0,
         });
         gastos = gastos.filter(x => x.id !== id);
         guardarLocal();
         schedulePush();
         renderTodo();
-        mostrarToast(`Pagado a ${pedidorNombre} — registrado en tu historial`);
+        mostrarToast(`Cobro saldado — registrado en el historial de ambos`);
     };
     document.getElementById('cobro-pagar-modal').classList.remove('hidden');
 };
