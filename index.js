@@ -126,8 +126,9 @@ async function pollPeriodico() {
         const snap = g => `${g.id}|${g.tipo}|${g.monto}|${g.pagador}|${g.categoria}|${g.parte1??''}|${g.parte2??''}`;
         const snapAntes  = gastos.map(snap).sort().join('\n');
 
-        const propAntes  = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
-        const cobrosAntes = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
+        const propAntes      = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const cobrosAntes    = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length; // yo debo
+        const prestamosAntes = gastos.filter(g => g.tipo === 'cobro' && g.pagador === usuario).length; // me deben
 
         config = r.config;
         gastos = normalizarGastos(r.gastos || []);
@@ -141,14 +142,18 @@ async function pollPeriodico() {
 
         renderTodo();
 
-        const propAhora   = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
-        const cobrosAhora = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
+        const propAhora      = gastos.filter(g => g.tipo === `propuesto_${usuario}`).length;
+        const cobrosAhora    = gastos.filter(g => g.tipo === 'cobro' && g.pagador !== usuario).length;
+        const prestamosAhora = gastos.filter(g => g.tipo === 'cobro' && g.pagador === usuario).length;
         if (propAhora > propAntes) {
             const n = propAhora - propAntes;
             mostrarToast(`¡Tienes ${n} movimiento${n > 1 ? 's' : ''} por confirmar!`);
         } else if (cobrosAhora > cobrosAntes) {
-            const n = cobrosAhora - cobrosAntes;
-            mostrarToast(`¡${n} cobro${n > 1 ? 's' : ''} nuevo${n > 1 ? 's' : ''} pendiente${n > 1 ? 's' : ''}!`);
+            // El otro me pidió dinero prestado → yo debo
+            mostrarToast(`¡${config['nombre' + (usuario === '1' ? '2' : '1')]} te pidió dinero prestado!`);
+        } else if (prestamosAhora > prestamosAntes) {
+            // Alguien marcó que me pagó → yo cobré
+            mostrarToast('Datos actualizados');
         } else {
             mostrarToast('Datos actualizados');
         }
@@ -433,7 +438,7 @@ document.getElementById('monto').addEventListener('input', function () {
     }
 });
 
-document.getElementById('cobro-monto').addEventListener('input', function () {
+document.getElementById('cobro-monto')?.addEventListener('input', function () {
     const v = this.value.replace(/\D/g, '');
     this.value = v ? new Intl.NumberFormat('es-CL').format(+v) : '';
 });
@@ -769,21 +774,22 @@ window.confirmarPago = function () {
     gastos = gastos.filter(x => x.id !== pagoId);
 
     if (g.pagador === 'compartido') {
-        const mitad = Math.round(g.monto / 2);
-        const otroUsr = pagoUsr === '1' ? '2' : '1';
+        const miParte   = partePor(g, pagoUsr);
+        const otraParte = partePor(g, pagoUsr === '1' ? '2' : '1');
+        const otroUsr   = pagoUsr === '1' ? '2' : '1';
 
         // Gasto por el monto efectivamente pagado
         gastos.push({ id: String(ts), fecha: g.fecha, concepto: g.concepto, monto: montoPagado, pagador: pagoUsr, tipo: 'gasto' });
 
-        // Si pagó menos de su mitad, queda pendiente para él
-        const restanteProp = Math.max(0, mitad - montoPagado);
+        // Si pagó menos de su parte, queda pendiente para él
+        const restanteProp = Math.max(0, miParte - montoPagado);
         if (restanteProp > 0) {
             gastos.push({ id: String(ts + 1), fecha: g.fecha, concepto: g.concepto, monto: restanteProp, pagador: pagoUsr, tipo: 'pendiente' });
         }
 
-        // La mitad del otro usuario (reducida si se pagó de más)
-        const cubiertaAjena = Math.max(0, montoPagado - mitad);
-        const restanteOtro  = mitad - cubiertaAjena;
+        // La parte del otro (reducida si se pagó de más)
+        const cubiertaAjena = Math.max(0, montoPagado - miParte);
+        const restanteOtro  = otraParte - cubiertaAjena;
         if (restanteOtro > 0) {
             gastos.push({ id: String(ts + 2), fecha: g.fecha, concepto: g.concepto, monto: restanteOtro, pagador: otroUsr, tipo: 'pendiente' });
         }
@@ -1112,9 +1118,12 @@ function renderPendientes() {
 
     items.forEach(g => {
         const es50  = g.pagador === 'compartido';
-        const mitad = Math.round(g.monto / 2);
+        const p1badge = partePor(g, '1');
+        const p2badge = partePor(g, '2');
         const badge = es50
-            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(mitad)}</span>`
+            ? (g.parte1 || g.parte2
+                ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">${esc(config.nombre1)}: ${fmt(p1badge)} · ${esc(config.nombre2)}: ${fmt(p2badge)}</span>`
+                : `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(Math.round(g.monto / 2))}</span>`)
             : '';
 
         const botonesAccion = es50
@@ -1211,8 +1220,8 @@ function renderHistorial() {
             </div>`;
         } else if (filtroUsuario === 'compartido') {
             resumenDerecha = `<div class="flex gap-3 text-right shrink-0">
-                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n1)}</p><p class="text-label-sm font-bold">${fmt(tc/2)}</p></div>
-                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n2)}</p><p class="text-label-sm font-bold">${fmt(tc/2)}</p></div>
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n1)}</p><p class="text-label-sm font-bold">${fmt(t1)}</p></div>
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n2)}</p><p class="text-label-sm font-bold">${fmt(t2)}</p></div>
             </div>`;
         } else {
             resumenDerecha = `<div class="flex gap-3 text-right shrink-0">
@@ -1785,12 +1794,30 @@ function renderCobros() {
     });
 }
 
-window.abrirCrearCobro = function () {
+let cobromModo = 'pedido'; // 'pedido' = yo pedí prestado | 'prestamo' = yo presté
+
+window.setCobromModo = function (modo) {
+    cobromModo = modo;
     const otroNombre = config['nombre' + (usuario === '1' ? '2' : '1')];
-    document.getElementById('cobro-modal-subtitulo').textContent = `Le pedirás dinero a ${otroNombre}.`;
+    const activo   = 'h-9 text-xs font-bold rounded-lg transition-all bg-primary text-on-primary';
+    const inactivo = 'h-9 text-xs font-bold rounded-lg transition-all text-on-surface-variant';
+    document.getElementById('cobro-modo-pedido').className   = modo === 'pedido'   ? activo : inactivo;
+    document.getElementById('cobro-modo-prestamo').className = modo === 'prestamo' ? activo : inactivo;
+    if (modo === 'pedido') {
+        document.getElementById('cobro-modal-titulo').textContent    = 'Pedí prestado';
+        document.getElementById('cobro-modal-subtitulo').textContent = `Le pediste dinero a ${otroNombre} — vos debés.`;
+    } else {
+        document.getElementById('cobro-modal-titulo').textContent    = 'Presté dinero';
+        document.getElementById('cobro-modal-subtitulo').textContent = `${otroNombre} te debe este dinero.`;
+    }
+};
+
+window.abrirCrearCobro = function () {
+    cobromModo = 'pedido';
     document.getElementById('cobro-concepto').value = '';
     document.getElementById('cobro-monto').value = '';
     document.getElementById('cobro-modal').classList.remove('hidden');
+    setCobromModo('pedido');
     setTimeout(() => document.getElementById('cobro-concepto').focus(), 120);
 };
 
@@ -1810,12 +1837,17 @@ window.guardarCobro = function () {
     if (!concepto) { concEl.classList.add('border-error'); concEl.focus(); return; }
     if (!monto || monto <= 0) { montoEl.classList.add('border-error'); montoEl.focus(); return; }
 
+    const otroNum = usuario === '1' ? '2' : '1';
+    // 'pedido': yo pedí prestado → el otro es el acreedor (pagador = otro)
+    // 'prestamo': yo presté → yo soy el acreedor (pagador = yo)
+    const acreedor = cobromModo === 'pedido' ? otroNum : usuario;
+
     gastos.push({
         id:        Date.now().toString(),
         fecha:     new Date().toISOString().substring(0, 10),
         concepto,
         monto,
-        pagador:   usuario,
+        pagador:   acreedor,
         tipo:      'cobro',
         categoria: '',
     });
@@ -1824,7 +1856,11 @@ window.guardarCobro = function () {
     schedulePush();
     cerrarCrearCobro();
     renderTodo();
-    mostrarToast(`Cobro enviado a ${config['nombre' + (usuario === '1' ? '2' : '1')]}`);
+    const otroNombre = config['nombre' + otroNum];
+    const toastMsg = cobromModo === 'pedido'
+        ? `Le pediste ${fmt(monto)} prestado a ${otroNombre}`
+        : `Registraste que ${otroNombre} te debe ${fmt(monto)}`;
+    mostrarToast(toastMsg);
 };
 
 window.pagarCobro = function (id) {
@@ -1836,11 +1872,21 @@ window.pagarCobro = function (id) {
     const btn = document.getElementById('cobro-pagar-btn');
     btn.onclick = () => {
         cerrarPagarCobro();
+        // Registrar el pago como gasto solo del deudor (quien devuelve el dinero)
+        gastos.push({
+            id:        (Date.now() + 1).toString(),
+            fecha:     new Date().toISOString().substring(0, 10),
+            concepto:  cobro.concepto,
+            monto:     cobro.monto,
+            pagador:   usuario, // el deudor (usuario actual) pagó
+            tipo:      'gasto',
+            categoria: cobro.categoria || '',
+        });
         gastos = gastos.filter(x => x.id !== id);
         guardarLocal();
         schedulePush();
         renderTodo();
-        mostrarToast(`Pago confirmado a ${pedidorNombre}`);
+        mostrarToast(`Pagado a ${pedidorNombre} — registrado en tu historial`);
     };
     document.getElementById('cobro-pagar-modal').classList.remove('hidden');
 };
@@ -1906,6 +1952,12 @@ function mostrarToast(msg) {
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js').catch(e => console.warn('[SW]', e));
+    });
+    navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data?.type === 'SW_UPDATED') {
+            mostrarToast('Actualizando a nueva versión…');
+            setTimeout(() => window.location.reload(), 1500);
+        }
     });
 }
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gastos-comunes-v16';
+const CACHE_NAME = 'gastos-comunes-v18';
 const CACHE_TIMEOUT = 5000; // ms before falling back to cache
 
 const STATIC_ASSETS = [
@@ -21,12 +21,14 @@ self.addEventListener('install', event => {
     );
 });
 
-// ─── ACTIVATE: delete old caches ─────────────────────────────────────────────
+// ─── ACTIVATE: delete old caches + notify clients to reload ──────────────────
 self.addEventListener('activate', event => {
     event.waitUntil(
-        caches.keys().then(keys =>
-            Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-        ).then(() => self.clients.claim())
+        caches.keys()
+            .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+            .then(() => self.clients.claim())
+            .then(() => self.clients.matchAll({ type: 'window' }))
+            .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
     );
 });
 
@@ -45,7 +47,14 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Cache-first for everything else (fonts, CDN assets, local files)
+    // Archivos locales de la app: network-first para que las actualizaciones
+    // lleguen de inmediato sin que la caché sirva una versión vieja.
+    if (url.origin === self.location.origin) {
+        event.respondWith(networkFirstWithFallback(event.request));
+        return;
+    }
+
+    // CDN / fuentes externas: cache-first (cambian raramente)
     event.respondWith(cacheFirst(event.request));
 });
 
