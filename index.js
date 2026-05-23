@@ -595,7 +595,11 @@ const AYUDAS = {
   </div>
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-primary shrink-0">group</span>
-    <div><p class="font-bold">50/50 (compartido)</p><p class="text-sm text-on-surface-variant mt-0.5">El gasto se divide en partes iguales. La mitad se suma al total de cada persona.</p></div>
+    <div><p class="font-bold">Dividir (compartido)</p><p class="text-sm text-on-surface-variant mt-0.5">El gasto se comparte entre los dos. Por defecto se divide en partes iguales (50/50), pero podés definir cuánto paga cada uno manualmente.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">tune</span>
+    <div><p class="font-bold">División personalizada</p><p class="text-sm text-on-surface-variant mt-0.5">Al elegir "Dividir" aparece un panel para ingresar el monto exacto de cada persona. Si los montos no suman el total, la app te avisa con una alerta.</p></div>
   </div>
 </div>`
     },
@@ -611,6 +615,10 @@ const AYUDAS = {
     <span class="material-symbols-outlined text-tertiary shrink-0">pending_actions</span>
     <div><p class="font-bold">Pendiente</p><p class="text-sm text-on-surface-variant mt-0.5">Todavía no se pagó. Aparece arriba hasta que se salde. Se puede abonar en partes o pagar todo de una vez.</p></div>
   </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-on-surface-variant shrink-0">info</span>
+    <div><p class="font-bold">Propuesto</p><p class="text-sm text-on-surface-variant mt-0.5">Cuando el otro usuario registra un movimiento, aparece como "propuesto" esperando tu confirmación. Hasta que no lo confirmás, no entra al historial.</p></div>
+  </div>
 </div>`
     },
     resumen: {
@@ -622,11 +630,15 @@ const AYUDAS = {
   </div>
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-primary shrink-0">person</span>
-    <div><p class="font-bold">Total por persona</p><p class="text-sm text-on-surface-variant mt-0.5">Cuánto gastó cada uno. En gastos 50/50 la mitad se suma al total de cada persona.</p></div>
+    <div><p class="font-bold">Total por persona</p><p class="text-sm text-on-surface-variant mt-0.5">Cuánto gastó cada uno. En gastos compartidos se suma la parte que corresponde a cada persona (según la división configurada).</p></div>
   </div>
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-error shrink-0">pending_actions</span>
     <div><p class="font-bold">Pendiente por persona</p><p class="text-sm text-on-surface-variant mt-0.5">Monto que esa persona todavía tiene que pagar. Desaparece cuando el pendiente se salda.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-tertiary shrink-0">receipt_long</span>
+    <div><p class="font-bold">Cobros pendientes</p><p class="text-sm text-on-surface-variant mt-0.5">Si hay cobros activos (préstamos sin saldar), aparece el monto que debés o que te deben en la sección Cobros.</p></div>
   </div>
 </div>`
     },
@@ -639,7 +651,33 @@ const AYUDAS = {
   </div>
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-secondary shrink-0">payments</span>
-    <div><p class="font-bold">Pendiente 50/50</p><p class="text-sm text-on-surface-variant mt-0.5">Cada persona paga su parte de forma independiente tocando su propio botón. Si pagás menos de tu mitad, queda pendiente la diferencia para vos.</p></div>
+    <div><p class="font-bold">Pendiente compartido</p><p class="text-sm text-on-surface-variant mt-0.5">Cada persona paga su parte de forma independiente tocando su propio botón. Si pagás menos de tu parte, la diferencia queda pendiente solo para vos.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-on-surface-variant shrink-0">info</span>
+    <div><p class="font-bold">División personalizada en pendientes</p><p class="text-sm text-on-surface-variant mt-0.5">Si el pendiente fue creado con montos distintos para cada uno, el badge muestra la parte exacta de cada persona.</p></div>
+  </div>
+</div>`
+    },
+    cobros: {
+        titulo: 'Cobros y préstamos',
+        html: `<p class="text-on-surface-variant mb-3">Registrá dinero que pediste prestado o que le prestaste a la otra persona.</p>
+<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-tertiary shrink-0">arrow_downward</span>
+    <div><p class="font-bold">Pedí prestado</p><p class="text-sm text-on-surface-variant mt-0.5">Vos le pediste dinero al otro usuario. Queda registrado como deuda tuya. Cuando lo pagués, se genera un gasto en tu historial.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-tertiary shrink-0">arrow_upward</span>
+    <div><p class="font-bold">Presté dinero</p><p class="text-sm text-on-surface-variant mt-0.5">Le prestaste dinero al otro usuario. Queda registrado como deuda del otro. Al pagar, el gasto aparece en el historial del deudor.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-secondary shrink-0">handshake</span>
+    <div><p class="font-bold">Marcar como pagado</p><p class="text-sm text-on-surface-variant mt-0.5">El deudor toca "Pagar" en el cobro que le corresponde. El cobro desaparece y se registra el gasto automáticamente.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-error shrink-0">notifications</span>
+    <div><p class="font-bold">Notificaciones</p><p class="text-sm text-on-surface-variant mt-0.5">Si el otro dispositivo registra un nuevo cobro o préstamo, la app lo notifica en la próxima sincronización.</p></div>
   </div>
 </div>`
     },
@@ -654,6 +692,10 @@ const AYUDAS = {
     <span class="material-symbols-outlined text-primary shrink-0">sync</span>
     <div><p class="font-bold">Botón Sincronizar</p><p class="text-sm text-on-surface-variant mt-0.5">Descarga los últimos datos del Sheet al instante. Usalo si el otro usuario acaba de hacer cambios desde otro dispositivo.</p></div>
   </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">devices</span>
+    <div><p class="font-bold">Multidispositivo</p><p class="text-sm text-on-surface-variant mt-0.5">Ambos dispositivos ven siempre los mismos datos. Los cambios del otro aparecen en la próxima sincronización automática (cada ~30 segundos).</p></div>
+  </div>
 </div>`
     },
     datos: {
@@ -661,11 +703,11 @@ const AYUDAS = {
         html: `<div class="space-y-3">
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-error shrink-0">delete_sweep</span>
-    <div><p class="font-bold">Borrar todos los gastos</p><p class="text-sm text-on-surface-variant mt-0.5">Elimina todos los movimientos (gastos y pendientes) del historial. La configuración de usuarios se mantiene intacta.</p></div>
+    <div><p class="font-bold">Borrar todos los gastos</p><p class="text-sm text-on-surface-variant mt-0.5">Elimina todos los movimientos (gastos, pendientes y cobros) del historial. La configuración de usuarios y categorías se mantiene intacta.</p></div>
   </div>
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-error shrink-0">restart_alt</span>
-    <div><p class="font-bold">Resetear aplicación</p><p class="text-sm text-on-surface-variant mt-0.5">Borra absolutamente todo: usuarios, gastos y configuración, tanto en el dispositivo como en Google Sheets. Tendrás que configurar la app de cero.</p></div>
+    <div><p class="font-bold">Resetear aplicación</p><p class="text-sm text-on-surface-variant mt-0.5">Borra absolutamente todo: usuarios, gastos, cobros y categorías, tanto en el dispositivo como en Google Sheets. Tendrás que configurar la app de cero.</p></div>
   </div>
 </div>`
     },
@@ -683,6 +725,23 @@ const AYUDAS = {
   <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
     <span class="material-symbols-outlined text-primary shrink-0">devices</span>
     <div><p class="font-bold">Multidispositivo</p><p class="text-sm text-on-surface-variant mt-0.5">La configuración se guarda en Google Sheets y está disponible en cualquier dispositivo. Solo se configura una vez.</p></div>
+  </div>
+</div>`
+    },
+    categorias: {
+        titulo: 'Categorías',
+        html: `<div class="space-y-3">
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">category</span>
+    <div><p class="font-bold">¿Para qué sirven?</p><p class="text-sm text-on-surface-variant mt-0.5">Agrupan los gastos por tipo (supermercado, servicios, salud, etc.) y permiten ver cuánto gastaron en cada rubro en las estadísticas.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">add_circle</span>
+    <div><p class="font-bold">Crear categorías</p><p class="text-sm text-on-surface-variant mt-0.5">Desde Ajustes podés crear categorías con nombre, icono (emoji) y color. Se sincronizan entre dispositivos automáticamente.</p></div>
+  </div>
+  <div class="flex gap-3 p-3 bg-surface-container rounded-xl">
+    <span class="material-symbols-outlined text-primary shrink-0">bar_chart</span>
+    <div><p class="font-bold">Estadísticas por categoría</p><p class="text-sm text-on-surface-variant mt-0.5">En la sección de estadísticas se muestra el desglose del gasto mes a mes por categoría, con porcentajes y totales.</p></div>
   </div>
 </div>`
     }
