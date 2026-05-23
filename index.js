@@ -774,21 +774,22 @@ window.confirmarPago = function () {
     gastos = gastos.filter(x => x.id !== pagoId);
 
     if (g.pagador === 'compartido') {
-        const mitad = Math.round(g.monto / 2);
-        const otroUsr = pagoUsr === '1' ? '2' : '1';
+        const miParte   = partePor(g, pagoUsr);
+        const otraParte = partePor(g, pagoUsr === '1' ? '2' : '1');
+        const otroUsr   = pagoUsr === '1' ? '2' : '1';
 
         // Gasto por el monto efectivamente pagado
         gastos.push({ id: String(ts), fecha: g.fecha, concepto: g.concepto, monto: montoPagado, pagador: pagoUsr, tipo: 'gasto' });
 
-        // Si pagó menos de su mitad, queda pendiente para él
-        const restanteProp = Math.max(0, mitad - montoPagado);
+        // Si pagó menos de su parte, queda pendiente para él
+        const restanteProp = Math.max(0, miParte - montoPagado);
         if (restanteProp > 0) {
             gastos.push({ id: String(ts + 1), fecha: g.fecha, concepto: g.concepto, monto: restanteProp, pagador: pagoUsr, tipo: 'pendiente' });
         }
 
-        // La mitad del otro usuario (reducida si se pagó de más)
-        const cubiertaAjena = Math.max(0, montoPagado - mitad);
-        const restanteOtro  = mitad - cubiertaAjena;
+        // La parte del otro (reducida si se pagó de más)
+        const cubiertaAjena = Math.max(0, montoPagado - miParte);
+        const restanteOtro  = otraParte - cubiertaAjena;
         if (restanteOtro > 0) {
             gastos.push({ id: String(ts + 2), fecha: g.fecha, concepto: g.concepto, monto: restanteOtro, pagador: otroUsr, tipo: 'pendiente' });
         }
@@ -1117,9 +1118,12 @@ function renderPendientes() {
 
     items.forEach(g => {
         const es50  = g.pagador === 'compartido';
-        const mitad = Math.round(g.monto / 2);
+        const p1badge = partePor(g, '1');
+        const p2badge = partePor(g, '2');
         const badge = es50
-            ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(mitad)}</span>`
+            ? (g.parte1 || g.parte2
+                ? `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">${esc(config.nombre1)}: ${fmt(p1badge)} · ${esc(config.nombre2)}: ${fmt(p2badge)}</span>`
+                : `<span class="text-[10px] text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">Cada uno: ${fmt(Math.round(g.monto / 2))}</span>`)
             : '';
 
         const botonesAccion = es50
@@ -1216,8 +1220,8 @@ function renderHistorial() {
             </div>`;
         } else if (filtroUsuario === 'compartido') {
             resumenDerecha = `<div class="flex gap-3 text-right shrink-0">
-                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n1)}</p><p class="text-label-sm font-bold">${fmt(tc/2)}</p></div>
-                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n2)}</p><p class="text-label-sm font-bold">${fmt(tc/2)}</p></div>
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n1)}</p><p class="text-label-sm font-bold">${fmt(t1)}</p></div>
+                <div><p class="text-[10px] text-on-surface-variant font-bold truncate max-w-[64px]">${esc(n2)}</p><p class="text-label-sm font-bold">${fmt(t2)}</p></div>
             </div>`;
         } else {
             resumenDerecha = `<div class="flex gap-3 text-right shrink-0">
