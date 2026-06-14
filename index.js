@@ -398,6 +398,8 @@ document.getElementById('recovery-form').addEventListener('submit', function (e)
 });
 
 window.logout = function () {
+    cerrarCajon();
+    cerrarConfirm();
     detenerTimerSesion();
     detenerPolling();
     sessionStorage.removeItem('ss_usuario');
@@ -873,22 +875,32 @@ document.getElementById('pago-monto').addEventListener('input', function () {
     this.value = val ? new Intl.NumberFormat('es-CL').format(+val) : '';
 });
 
+function abrirConfirm({ titulo, detalle, icono = 'delete_forever', btnTexto = 'Eliminar', onConfirm }) {
+    document.getElementById('confirm-modal-titulo').textContent  = titulo;
+    document.getElementById('confirm-modal-concepto').textContent = detalle || '';
+    document.getElementById('confirm-modal-icon').textContent    = icono;
+    const btn = document.getElementById('confirm-modal-btn');
+    btn.innerHTML = `<span class="material-symbols-outlined text-sm">${icono}</span>${btnTexto}`;
+    btn.onclick = () => { cerrarConfirm(); onConfirm(); };
+    document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
 window.eliminar = function (id) {
     const g = gastos.find(x => x.id === id);
     if (!g) return;
-    const modal    = document.getElementById('confirm-modal');
-    const concepto = document.getElementById('confirm-modal-concepto');
-    const btn      = document.getElementById('confirm-modal-btn');
-    concepto.textContent = `${g.concepto} · ${fmt(g.monto)}`;
-    btn.onclick = () => {
-        cerrarConfirm();
-        gastos = gastos.filter(x => x.id !== id);
-        guardarLocal();
-        schedulePush();
-        renderTodo();
-        mostrarToast('Movimiento eliminado');
-    };
-    modal.classList.remove('hidden');
+    abrirConfirm({
+        titulo:    '¿Eliminar movimiento?',
+        detalle:   `${g.concepto} · ${fmt(g.monto)}`,
+        icono:     'delete_forever',
+        btnTexto:  'Eliminar',
+        onConfirm: () => {
+            gastos = gastos.filter(x => x.id !== id);
+            guardarLocal();
+            schedulePush();
+            renderTodo();
+            mostrarToast('Movimiento eliminado');
+        }
+    });
 };
 
 window.cerrarConfirm = function () {
@@ -1562,12 +1574,23 @@ window.agregarCategoria = function () {
 
 window.eliminarCategoria = function (id) {
     if (CATEGORIAS_BASE.find(c => c.id === id)) return;
-    categorias = categoriasEfectivas().filter(c => c.id !== id);
-    guardarLocal();
-    pushCategorias();
-    renderGestionCats();
-    renderFormCatSelector();
-    renderFiltroBar();
+    const cat = categoriasEfectivas().find(c => c.id === id);
+    if (!cat) return;
+    abrirConfirm({
+        titulo:    '¿Eliminar categoría?',
+        detalle:   cat.nombre,
+        icono:     'category',
+        btnTexto:  'Eliminar',
+        onConfirm: () => {
+            categorias = categoriasEfectivas().filter(c => c.id !== id);
+            guardarLocal();
+            pushCategorias();
+            renderGestionCats();
+            renderFormCatSelector();
+            renderFiltroBar();
+            mostrarToast('Categoría eliminada');
+        }
+    });
 };
 
 function renderGestionCats() {
@@ -1597,10 +1620,24 @@ async function pushCategorias() {
 
 // ─── CAJÓN DE AJUSTES ─────────────────────────────────────────────────────────
 
-window.toggleCajon = function () {
-    const cajon    = document.getElementById('cajon');
+function cerrarCajon() {
+    const cajon     = document.getElementById('cajon');
     const contenido = document.getElementById('cajon-contenido');
-    const fondo    = document.getElementById('cajon-fondo');
+    const fondo     = document.getElementById('cajon-fondo');
+    if (!cajon || cajon.classList.contains('hidden')) return;
+    contenido.classList.add('-translate-x-full');
+    fondo.classList.remove('opacity-100');
+    fondo.classList.add('opacity-0');
+    setTimeout(() => {
+        cajon.classList.add('hidden', 'pointer-events-none');
+        cajon.classList.remove('pointer-events-auto');
+    }, 300);
+}
+
+window.toggleCajon = function () {
+    const cajon     = document.getElementById('cajon');
+    const contenido = document.getElementById('cajon-contenido');
+    const fondo     = document.getElementById('cajon-fondo');
 
     if (cajon.classList.contains('hidden')) {
         cajon.classList.remove('hidden', 'pointer-events-none');
@@ -1611,51 +1648,58 @@ window.toggleCajon = function () {
             fondo.classList.add('opacity-100');
         }, 10);
     } else {
-        contenido.classList.add('-translate-x-full');
-        fondo.classList.remove('opacity-100');
-        fondo.classList.add('opacity-0');
-        setTimeout(() => {
-            cajon.classList.add('hidden', 'pointer-events-none');
-            cajon.classList.remove('pointer-events-auto');
-        }, 300);
+        cerrarCajon();
     }
 };
 
 // ─── GESTIÓN DE DATOS ─────────────────────────────────────────────────────────
 
 window.borrarGastos = function () {
-    if (!confirm('¿Borrar todos los gastos? La configuración de usuarios se mantiene.')) return;
-    toggleCajon();
-    gastos = [];
-    filtroCategoria = null;
-    filtroUsuario   = null;
-    guardarLocal();
-    renderTodo();
-    // Push inmediato para limpiar el Sheet también
-    fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'push', gastos: [], config })
-    }).catch(e => console.warn('[GastosComunes]', e));
+    cerrarCajon();
+    abrirConfirm({
+        titulo:    '¿Borrar todos los gastos?',
+        detalle:   'La configuración de usuarios y categorías se mantiene.',
+        icono:     'delete_sweep',
+        btnTexto:  'Borrar todo',
+        onConfirm: () => {
+            gastos = [];
+            filtroCategoria = null;
+            filtroUsuario   = null;
+            guardarLocal();
+            renderTodo();
+            fetch(GAS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: 'push', gastos: [], config })
+            }).catch(e => console.warn('[GastosComunes]', e));
+            mostrarToast('Gastos eliminados');
+        }
+    });
 };
 
 window.resetearApp = function () {
-    if (!confirm('⚠️ ¿Resetear la aplicación?\n\nSe borrarán usuarios y gastos del Sheet y del dispositivo. Necesitarás configurar de nuevo.')) return;
-    // Limpiar Sheet en segundo plano
-    fetch(GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'reset' })
-    }).catch(() => {});
-    // Limpiar local
-    config  = null;
-    gastos  = [];
-    usuario = null;
-    localStorage.clear();
-    sessionStorage.clear();
-    localStorage.setItem('ss_reset', '1');
-    mostrarVista('setup-view');
-    document.getElementById('setup-form').reset();
+    cerrarCajon();
+    abrirConfirm({
+        titulo:    '¿Resetear la aplicación?',
+        detalle:   'Se borrarán usuarios, gastos y categorías del dispositivo y del Sheet. Tendrás que configurar de nuevo.',
+        icono:     'restart_alt',
+        btnTexto:  'Resetear',
+        onConfirm: () => {
+            fetch(GAS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify({ action: 'reset' })
+            }).catch(() => {});
+            config  = null;
+            gastos  = [];
+            usuario = null;
+            localStorage.clear();
+            sessionStorage.clear();
+            localStorage.setItem('ss_reset', '1');
+            mostrarVista('setup-view');
+            document.getElementById('setup-form').reset();
+        }
+    });
 };
 
 // ─── SINCRONIZACIÓN ───────────────────────────────────────────────────────────
@@ -1908,19 +1952,19 @@ window.confirmarPropuesto = function (id, tipo) {
 window.rechazarPropuesto = function (id) {
     const g = gastos.find(x => x.id === id);
     if (!g) return;
-    const modal    = document.getElementById('confirm-modal');
-    const concepto = document.getElementById('confirm-modal-concepto');
-    const btn      = document.getElementById('confirm-modal-btn');
-    concepto.textContent = `${g.concepto} · ${fmt(g.monto)}`;
-    btn.onclick = () => {
-        cerrarConfirm();
-        gastos = gastos.filter(x => x.id !== id);
-        guardarLocal();
-        schedulePush();
-        renderTodo();
-        mostrarToast('Movimiento rechazado');
-    };
-    modal.classList.remove('hidden');
+    abrirConfirm({
+        titulo:    '¿Rechazar movimiento?',
+        detalle:   `${g.concepto} · ${fmt(g.monto)}`,
+        icono:     'cancel',
+        btnTexto:  'Rechazar',
+        onConfirm: () => {
+            gastos = gastos.filter(x => x.id !== id);
+            guardarLocal();
+            schedulePush();
+            renderTodo();
+            mostrarToast('Movimiento rechazado');
+        }
+    });
 };
 
 // ─── COBROS (solicitudes de dinero) ──────────────────────────────────────────
@@ -2090,19 +2134,19 @@ window.cerrarPagarCobro = function () {
 window.eliminarCobro = function (id) {
     const cobro = gastos.find(x => x.id === id);
     if (!cobro) return;
-    const modal    = document.getElementById('confirm-modal');
-    const concepto = document.getElementById('confirm-modal-concepto');
-    const btn      = document.getElementById('confirm-modal-btn');
-    concepto.textContent = `${cobro.concepto} · ${fmt(cobro.monto)}`;
-    btn.onclick = () => {
-        cerrarConfirm();
-        gastos = gastos.filter(x => x.id !== id);
-        guardarLocal();
-        schedulePush();
-        renderTodo();
-        mostrarToast('Cobro eliminado');
-    };
-    modal.classList.remove('hidden');
+    abrirConfirm({
+        titulo:    '¿Eliminar cobro?',
+        detalle:   `${cobro.concepto} · ${fmt(cobro.monto)}`,
+        icono:     'receipt_long',
+        btnTexto:  'Eliminar',
+        onConfirm: () => {
+            gastos = gastos.filter(x => x.id !== id);
+            guardarLocal();
+            schedulePush();
+            renderTodo();
+            mostrarToast('Cobro eliminado');
+        }
+    });
 };
 
 // ─── OFFLINE / RECONEXIÓN ─────────────────────────────────────────────────────

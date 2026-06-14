@@ -712,11 +712,11 @@
 <div id="confirm-modal" onclick="if(event.target===this)cerrarConfirm()" class="hidden fixed inset-0 z-[200] flex items-end justify-center bg-black/50 backdrop-blur-sm">
     <div class="w-full max-w-lg bg-surface rounded-t-2xl shadow-xl p-6 space-y-4">
         <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center shrink-0">
-                <span class="material-symbols-outlined text-error">delete_forever</span>
+            <div id="confirm-modal-icon-wrap" class="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center shrink-0">
+                <span id="confirm-modal-icon" class="material-symbols-outlined text-error">delete_forever</span>
             </div>
-            <div>
-                <p class="font-bold text-on-surface">¿Eliminar movimiento?</p>
+            <div class="min-w-0">
+                <p id="confirm-modal-titulo" class="font-bold text-on-surface">¿Eliminar?</p>
                 <p id="confirm-modal-concepto" class="text-xs text-on-surface-variant truncate"></p>
             </div>
         </div>
