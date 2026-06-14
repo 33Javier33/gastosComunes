@@ -135,6 +135,13 @@ Se puede agregar, editar o borrar filas directamente en la hoja **Gastos**. Los 
 
 ## Changelog
 
+### v21 — Ciclo mensual y archivo de meses
+- El **Resumen** ahora muestra el mes en curso por defecto (toggle "Este mes / Histórico").
+- La etiqueta del resumen indica el período activo (ej. "junio 2026" o "Todo el historial").
+- Nueva sección **Meses anteriores**: tarjetas compactas de cada mes pasado con total, desglose por persona e indicador de gastos compartidos.
+- La sección se muestra automáticamente cuando hay al menos un mes anterior con gastos.
+- Acceso rápido desde el botón "Meses" en la barra de navegación inferior.
+
 ### v20 — Cobros saldados visibles en historial para ambos usuarios
 - Cuando el deudor marca un cobro como pagado, el gasto queda registrado como `compartido` con la parte del deudor al monto completo y la parte del acreedor en $0. Así ambos usuarios ven el movimiento en el historial (en el filtro "compartido" o "todos").
 - El badge del historial identifica estos movimientos con el label "↩ Cobro · [nombre]: $monto" en color terciario para distinguirlos de los gastos compartidos normales.

@@ -233,8 +233,18 @@
 
         <!-- Resumen -->
         <div class="flex items-center justify-between pt-2 pb-1">
-            <h3 class="text-headline-md">Resumen</h3>
+            <div>
+                <h3 class="text-headline-md">Resumen</h3>
+                <p id="resumen-mes-label" class="text-xs text-on-surface-variant capitalize mt-0.5"></p>
+            </div>
             <button onclick="mostrarAyuda('resumen')" class="w-7 h-7 rounded-full border border-outline-variant text-on-surface-variant text-sm font-bold flex items-center justify-center hover:border-primary hover:text-primary active:scale-95">?</button>
+        </div>
+        <!-- Toggle mes / histórico -->
+        <div class="grid grid-cols-2 gap-1 bg-surface-container rounded-xl p-1">
+            <button id="resumen-btn-mes" type="button" onclick="setResumenModo('mes')"
+                class="h-8 text-xs font-bold rounded-lg transition-all bg-primary text-on-primary">Este mes</button>
+            <button id="resumen-btn-total" type="button" onclick="setResumenModo('total')"
+                class="h-8 text-xs font-bold rounded-lg transition-all text-on-surface-variant">Histórico</button>
         </div>
         <div class="grid grid-cols-2 gap-3">
             <!-- Total general -->
@@ -452,6 +462,21 @@
             </div>
         </section>
 
+        <!-- Meses anteriores (archivo) -->
+        <section id="seccion-meses" class="hidden space-y-3">
+            <button type="button" onclick="toggleMeses()"
+                class="w-full flex items-center justify-between py-1 active:opacity-70">
+                <h3 class="text-headline-md flex items-center gap-2">
+                    <span class="material-symbols-outlined text-on-surface-variant">archive</span>
+                    Meses anteriores
+                </h3>
+                <span id="meses-chevron" class="material-symbols-outlined text-on-surface-variant transition-transform">expand_more</span>
+            </button>
+            <div id="lista-meses" class="hidden space-y-3">
+                <p id="vacio-meses" class="hidden text-xs text-center text-on-surface-variant py-2">Sin meses anteriores</p>
+            </div>
+        </section>
+
     </main>
 
     <!-- Barra inferior -->
@@ -464,9 +489,9 @@
             <span class="material-symbols-outlined">history</span>
             <span class="text-label-sm">Historial</span>
         </button>
-        <button onclick="document.getElementById('seccion-estadisticas').scrollIntoView({behavior:'smooth'})" class="flex flex-col items-center gap-0.5 text-on-surface-variant">
-            <span class="material-symbols-outlined">bar_chart</span>
-            <span class="text-label-sm">Estadísticas</span>
+        <button onclick="abrirMeses()" class="flex flex-col items-center gap-0.5 text-on-surface-variant">
+            <span class="material-symbols-outlined">calendar_month</span>
+            <span class="text-label-sm">Meses</span>
         </button>
         <button onclick="toggleCajon()" class="flex flex-col items-center gap-0.5 text-on-surface-variant">
             <span class="material-symbols-outlined">settings</span>
