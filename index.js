@@ -29,6 +29,7 @@ let editId  = null;   // id del gasto en edición
 let editPag = '1';    // payer en modal de edición
 let filtroCategoria = null; // filtro activo por categoría en historial
 let filtroUsuario   = null; // filtro activo por usuario ('1','2','compartido')
+let resumenModo     = 'mes'; // 'mes' = mes actual | 'total' = todo el historial
 let editCat = '';     // categoría seleccionada en modal editar
 let partePersonalizada     = { u1: 0, u2: 0 };
 let editPartePersonalizada = { u1: 0, u2: 0 };
@@ -1139,13 +1140,24 @@ function renderTodo() {
     renderFiltroUsuario();
     renderFiltroBar();
     renderEstadisticas();
+    renderMesesAnteriores();
     renderFormCatSelector();
 }
 
+function mesActualKey() {
+    const h = new Date();
+    return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}`;
+}
+
 function renderResumen() {
+    const mesKey = mesActualKey();
+
+    // Gastos del período según modo
+    const esMes = resumenModo === 'mes';
     let t1 = 0, t2 = 0, tc = 0, p1 = 0, p2 = 0;
     gastos.forEach(g => {
-        if (g.tipo === 'propuesto_1' || g.tipo === 'propuesto_2' || g.tipo === 'cobro') return;
+        if (['propuesto_1', 'propuesto_2', 'cobro'].includes(g.tipo)) return;
+        if (esMes && g.tipo !== 'pendiente' && g.fecha?.substring(0, 7) !== mesKey) return;
         const m = g.monto;
         if (g.tipo === 'pendiente') {
             if (g.pagador === '1') p1 += m;
@@ -1159,12 +1171,34 @@ function renderResumen() {
     });
 
     document.getElementById('total-general').textContent = fmt(t1 + t2);
-    document.getElementById('total-compartido').textContent = 'Incluye ' + fmt(tc) + ' compartidos';
+    const compEl = document.getElementById('total-compartido');
+    compEl.textContent = tc > 0 ? 'Incluye ' + fmt(tc) + ' compartidos' : '';
     document.getElementById('total-n1').textContent = fmt(t1);
     document.getElementById('total-n2').textContent = fmt(t2);
     document.getElementById('pend-n1').textContent  = fmt(p1);
     document.getElementById('pend-n2').textContent  = fmt(p2);
+
+    // Etiqueta del período
+    const label = document.getElementById('resumen-mes-label');
+    if (label) {
+        label.textContent = esMes
+            ? new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+            : 'Todo el historial';
+    }
+
+    // Estado del toggle
+    const activo   = 'h-8 text-xs font-bold rounded-lg transition-all bg-primary text-on-primary';
+    const inactivo = 'h-8 text-xs font-bold rounded-lg transition-all text-on-surface-variant';
+    const bMes   = document.getElementById('resumen-btn-mes');
+    const bTotal = document.getElementById('resumen-btn-total');
+    if (bMes)   bMes.className   = esMes  ? activo : inactivo;
+    if (bTotal) bTotal.className = !esMes ? activo : inactivo;
 }
+
+window.setResumenModo = function (modo) {
+    resumenModo = modo;
+    renderResumen();
+};
 
 function renderPendientes() {
     const lista = document.getElementById('lista-pendientes');
@@ -1419,6 +1453,95 @@ function renderEstadisticas() {
     document.getElementById('stats-bar1').style.width = pct1 + '%';
     document.getElementById('stats-bar2').style.width = pct2 + '%';
 }
+
+// ─── ARCHIVO DE MESES ─────────────────────────────────────────────────────────
+
+function renderMesesAnteriores() {
+    const seccion = document.getElementById('seccion-meses');
+    const lista   = document.getElementById('lista-meses');
+    const vacio   = document.getElementById('vacio-meses');
+    if (!seccion || !lista) return;
+
+    const mesKey = mesActualKey();
+    const gastosPagados = gastos.filter(g => g.tipo === 'gasto' && g.fecha?.substring(0, 7) < mesKey);
+
+    // Agrupar por mes
+    const meses = new Map();
+    gastosPagados.forEach(g => {
+        const key = g.fecha.substring(0, 7);
+        if (!meses.has(key)) meses.set(key, []);
+        meses.get(key).push(g);
+    });
+
+    // Mostrar/ocultar sección entera
+    if (!meses.size) { seccion.classList.add('hidden'); return; }
+    seccion.classList.remove('hidden');
+
+    if (vacio) vacio.classList.add('hidden');
+
+    const n1 = config?.nombre1 || 'U1';
+    const n2 = config?.nombre2 || 'U2';
+
+    // Más reciente primero
+    const sorted = [...meses.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+
+    lista.innerHTML = sorted.map(([key, items]) => {
+        const [yr, mo] = key.split('-');
+        const label = new Date(+yr, +mo - 1, 1).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+
+        let total = 0, t1 = 0, t2 = 0, tc = 0;
+        items.forEach(g => {
+            total += g.monto;
+            if (g.pagador === '1')      { t1 += g.monto; }
+            else if (g.pagador === '2') { t2 += g.monto; }
+            else { tc += g.monto; t1 += partePor(g, '1'); t2 += partePor(g, '2'); }
+        });
+
+        return `
+        <div class="bg-surface-container-lowest rounded-2xl border border-outline-variant overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 bg-primary/5 border-b border-outline-variant">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-[18px]">calendar_month</span>
+                    <span class="text-label-sm font-bold text-primary capitalize">${label}</span>
+                </div>
+                <span class="text-headline-md font-bold">${fmt(total)}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-px bg-outline-variant">
+                <div class="bg-surface-container-lowest px-4 py-3 text-center">
+                    <p class="text-[10px] text-on-surface-variant uppercase font-bold">${esc(n1)}</p>
+                    <p class="font-bold text-label-md mt-0.5">${fmt(t1)}</p>
+                </div>
+                <div class="bg-surface-container-lowest px-4 py-3 text-center">
+                    <p class="text-[10px] text-on-surface-variant uppercase font-bold">${esc(n2)}</p>
+                    <p class="font-bold text-label-md mt-0.5">${fmt(t2)}</p>
+                </div>
+            </div>
+            ${tc > 0 ? `<div class="px-4 py-2 border-t border-outline-variant">
+                <p class="text-[10px] text-on-surface-variant text-center">Incluye <span class="font-bold">${fmt(tc)}</span> compartidos · ${items.length} gasto${items.length === 1 ? '' : 's'}</p>
+            </div>` : `<div class="px-4 py-2 border-t border-outline-variant">
+                <p class="text-[10px] text-on-surface-variant text-center">${items.length} gasto${items.length === 1 ? '' : 's'}</p>
+            </div>`}
+        </div>`;
+    }).join('');
+}
+
+let mesesAbiertos = false;
+
+window.toggleMeses = function () {
+    mesesAbiertos = !mesesAbiertos;
+    const lista   = document.getElementById('lista-meses');
+    const chevron = document.getElementById('meses-chevron');
+    if (lista)   lista.classList.toggle('hidden', !mesesAbiertos);
+    if (chevron) chevron.style.transform = mesesAbiertos ? 'rotate(180deg)' : '';
+};
+
+window.abrirMeses = function () {
+    const seccion = document.getElementById('seccion-meses');
+    if (!seccion || seccion.classList.contains('hidden')) return;
+    seccion.scrollIntoView({ behavior: 'smooth' });
+    // Abrir automáticamente si estaba cerrado
+    if (!mesesAbiertos) window.toggleMeses();
+};
 
 // ─── GESTIÓN DE CATEGORÍAS ────────────────────────────────────────────────────
 
