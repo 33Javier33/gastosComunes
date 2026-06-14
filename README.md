@@ -135,6 +135,13 @@ Se puede agregar, editar o borrar filas directamente en la hoja **Gastos**. Los 
 
 ## Changelog
 
+### v22 — Cierre de ajustes al salir y confirmaciones en borrados
+- Al cerrar sesión, el cajón de ajustes se cierra automáticamente antes de redirigir al login.
+- `eliminarCategoria` ahora muestra el modal de confirmación en lugar de borrar al toque.
+- `borrarGastos` y `resetearApp` usan el modal custom en lugar de `confirm()` nativo (que no funcionaba correctamente en móvil PWA).
+- `rechazarPropuesto` y `eliminarCobro` migrados al mismo helper `abrirConfirm` para consistencia visual.
+- Modal de confirmación refactorizado: título, icono y texto del botón son dinámicos según la acción.
+
 ### v21 — Ciclo mensual y archivo de meses
 - El **Resumen** ahora muestra el mes en curso por defecto (toggle "Este mes / Histórico").
 - La etiqueta del resumen indica el período activo (ej. "junio 2026" o "Todo el historial").
